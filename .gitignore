@@ -1,0 +1,8 @@
+ScreenTime.exe
+*.pdb
+*.tmp
+*.backup-*
+.vs/
+bin/
+obj/
+state.xml
