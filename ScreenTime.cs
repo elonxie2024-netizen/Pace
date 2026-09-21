@@ -368,15 +368,17 @@ public class ScreenTime : Form {
     void AddTime() {
         bool restoreDailyShutdown=state.DailyShutdown;
         if(restoreDailyShutdown && breakScreen!=null)breakScreen.Hide();
-        Show(); WindowState=FormWindowState.Normal; Activate();
+        if(!restoreDailyShutdown) { Show(); WindowState=FormWindowState.Normal; Activate(); }
         if(!HasPlan) { tabs.SelectedIndex=0; weekPicker.SelectedIndex=0; MessageBox.Show("Make a plan for this week first. Your usage is already being tracked.","Plan your week"); return; }
         if(Breaking || (day.Used>=Budget && !day.BreakEarned && !state.DailyShutdown)) { MessageBox.Show("Take your "+state.BreakMinutes+" minute break first, then come back to add time.","A little breathing room"); return; }
         using(Form dialog=new Form { Text="More time, with intention",ClientSize=new Size(470,270),StartPosition=FormStartPosition.CenterParent,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,MinimizeBox=false,Font=Font }) {
+            if(restoreDailyShutdown) { dialog.FormBorderStyle=FormBorderStyle.None; dialog.WindowState=FormWindowState.Maximized; dialog.TopMost=true; dialog.ShowInTaskbar=false; dialog.StartPosition=FormStartPosition.CenterScreen; dialog.BackColor=Color.FromArgb(18,38,34); }
             AddLabel(dialog,"How much more time do you need?",20,18,430,30,13);
             NumericUpDown amount=new NumericUpDown { Location=new Point(20,56),Minimum=1,Maximum=240,Value=15,Size=new Size(90,30) }; dialog.Controls.Add(amount); AddLabel(dialog,"minutes",122,60,200,28,10);
             AddLabel(dialog,"What would you like to finish? A reason is required.",20,102,430,28,10);
             TextBox reason=new TextBox { Location=new Point(20,136),Size=new Size(430,60),Multiline=true,MaxLength=500 }; dialog.Controls.Add(reason);
             ButtonAt(dialog,"Add time",300,214,150,delegate { if(string.IsNullOrWhiteSpace(reason.Text)) { MessageBox.Show(dialog,"Please write a reason first."); return; } Today(); if(Breaking || (day.Used>=Budget && !day.BreakEarned && !state.DailyShutdown)) { MessageBox.Show(dialog,"Your plan has ended. Take a break before adding time."); dialog.Close(); return; } day.Extra+=(int)amount.Value; day.Reasons.Add(DateTime.Now.ToString("HH:mm")+"  +"+amount.Value+" min  "+reason.Text.Trim().Replace("\r"," ").Replace("\n"," ")); day.Warned=false; day.Exhausted=false; day.BreakEarned=false; state.DailyShutdown=false; state.BreakOffscreen=false; state.BreakWaiting=false; if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); dialog.DialogResult=DialogResult.OK; });
+            if(restoreDailyShutdown)foreach(Control control in dialog.Controls)if(control is Label)control.ForeColor=Color.White;
             dialog.ShowDialog(this);
             if(restoreDailyShutdown && state.DailyShutdown && breakScreen!=null)breakScreen.ShowDailyShutdown();
             RefreshView();
