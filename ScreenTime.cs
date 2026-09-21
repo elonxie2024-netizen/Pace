@@ -366,6 +366,8 @@ public class ScreenTime : Form {
     void ContinueBreak() { if(!state.BreakWaiting && !state.BreakOffscreen)return; state.BreakWaiting=false; state.BreakOffscreen=false; if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
     void OffscreenActivity() { state.BreakOffscreen=true; state.BreakWaiting=true; state.BreakUntil=DateTime.MinValue; if(breakScreen!=null)breakScreen.SetOffscreen(); Save(); RefreshView(); }
     void AddTime() {
+        bool restoreDailyShutdown=state.DailyShutdown;
+        if(restoreDailyShutdown && breakScreen!=null)breakScreen.Hide();
         Show(); WindowState=FormWindowState.Normal; Activate();
         if(!HasPlan) { tabs.SelectedIndex=0; weekPicker.SelectedIndex=0; MessageBox.Show("Make a plan for this week first. Your usage is already being tracked.","Plan your week"); return; }
         if(Breaking || (day.Used>=Budget && !day.BreakEarned && !state.DailyShutdown)) { MessageBox.Show("Take your "+state.BreakMinutes+" minute break first, then come back to add time.","A little breathing room"); return; }
@@ -375,7 +377,9 @@ public class ScreenTime : Form {
             AddLabel(dialog,"What would you like to finish? A reason is required.",20,102,430,28,10);
             TextBox reason=new TextBox { Location=new Point(20,136),Size=new Size(430,60),Multiline=true,MaxLength=500 }; dialog.Controls.Add(reason);
             ButtonAt(dialog,"Add time",300,214,150,delegate { if(string.IsNullOrWhiteSpace(reason.Text)) { MessageBox.Show(dialog,"Please write a reason first."); return; } Today(); if(Breaking || (day.Used>=Budget && !day.BreakEarned && !state.DailyShutdown)) { MessageBox.Show(dialog,"Your plan has ended. Take a break before adding time."); dialog.Close(); return; } day.Extra+=(int)amount.Value; day.Reasons.Add(DateTime.Now.ToString("HH:mm")+"  +"+amount.Value+" min  "+reason.Text.Trim().Replace("\r"," ").Replace("\n"," ")); day.Warned=false; day.Exhausted=false; day.BreakEarned=false; state.DailyShutdown=false; state.BreakOffscreen=false; state.BreakWaiting=false; if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); dialog.DialogResult=DialogResult.OK; });
-            dialog.ShowDialog(this); RefreshView();
+            dialog.ShowDialog(this);
+            if(restoreDailyShutdown && state.DailyShutdown && breakScreen!=null)breakScreen.ShowDailyShutdown();
+            RefreshView();
         }
     }
     void RefreshView() {
