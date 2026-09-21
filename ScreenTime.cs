@@ -138,7 +138,7 @@ public class ScreenTime : Form {
         if(dataFolder!=null)folder=dataFolder;
         Text="Screen Time  A little more balance"; ClientSize=new Size(920,755); MinimumSize=new Size(940,795);
         BackColor=Color.FromArgb(246,247,241); ForeColor=ink; Font=new Font("Segoe UI",10); StartPosition=FormStartPosition.CenterScreen;
-        LoadState(); Today();
+        LoadState(); Today(); EnsureCurrentWeekPlan();
         AddLabel(this,"SCREEN TIME  /  YOUR PACE",30,22,800,24,10);
         AddLabel(this,"Make room for life off screen.",30,55,850,52,27);
         AddLabel(this,"A plan you choose. Gentle reminders. Always built on trust.",32,113,840,30,11);
@@ -255,6 +255,14 @@ public class ScreenTime : Form {
     }
     void Save() { try { Directory.CreateDirectory(folder); string temp=StatePath+".tmp"; using(var f=File.Create(temp))new XmlSerializer(typeof(Settings)).Serialize(f,state); if(File.Exists(StatePath))File.Replace(temp,StatePath,null); else File.Move(temp,StatePath); saveFailed=false; } catch { if(!saveFailed)MessageBox.Show("Could not save your plan and usage. Check available disk space and folder permissions.","Screen Time"); saveFailed=true; } }
     void Today() { string date=DateTime.Now.ToString("yyyy-MM-dd"); if(day!=null && day.Date==date)return; day=state.Days.Find(d=>d.Date==date); if(day==null) { day=new DayRecord { Date=date }; state.Days.Add(day); } }
+    void EnsureCurrentWeekPlan() {
+        if(state.GetWeek(DateTime.Now)!=null)return;
+        WeeklyPlan previous=state.GetWeek(Settings.Monday(DateTime.Now).AddDays(-1));
+        if(previous==null)return;
+        state.SetWeek(DateTime.Now,(int[])previous.Minutes.Clone());
+        state.PlanChanges.Add(new PlanChange { WeekStart=Settings.Monday(DateTime.Now).ToString("yyyy-MM-dd"), ChangedAt=DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Summary="Carried forward from the previous week" });
+        Save();
+    }
     void Tick() {
         double now=watch.Elapsed.TotalSeconds, elapsed=now-last; last=now;
         // A suspended system must not accrue the elapsed sleep interval.
