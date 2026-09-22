@@ -8,6 +8,7 @@ using System.Runtime.InteropServices;
 public sealed class CornerBar : Form {
     public bool IsMinimized { get; private set; }
     bool userPositioned;
+    bool changingWindowMode;
     readonly Label allotted, used, next, nextTitle, heading;
     readonly Button addTime, takeBreak;
     readonly Button endDay;
@@ -26,7 +27,7 @@ public sealed class CornerBar : Form {
         Font=new Font("Segoe UI",10); Cursor=Cursors.Hand;
         heading=LabelAt("PACE  /  Click to open",16,9,195,18,9);
         endDay=ActionButton("End day",220,7,58,22); endDay.Click+=delegate { if(EndDayClicked!=null)EndDayClicked(this,EventArgs.Empty); };
-        minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { ShowInTaskbar=true; IsMinimized=true; WindowState=FormWindowState.Minimized; };
+        minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { changingWindowMode=true; IsMinimized=true; ShowInTaskbar=true; RecreateHandle(); WindowState=FormWindowState.Minimized; changingWindowMode=false; };
         resetPosition=ActionButton("⌂",378,7,20,20); resetPosition.Font=new Font("Segoe UI Symbol",10); resetPosition.Click+=delegate { ResetPosition(); };
         LabelAt("ALLOTTED",16,34,75,18,8);
         LabelAt("USED",156,34,130,18,8);
@@ -43,7 +44,7 @@ public sealed class CornerBar : Form {
         Click+=Open;
         MouseDown+=DragFromEmptySpace;
         FormClosing+=delegate(object s,FormClosingEventArgs e) { if(e.CloseReason==CloseReason.UserClosing)e.Cancel=true; };
-        SizeChanged+=delegate { if(IsMinimized && WindowState==FormWindowState.Normal) { IsMinimized=false; ShowInTaskbar=false; BringToFront(); } };
+        SizeChanged+=delegate { if(!changingWindowMode && IsMinimized && WindowState==FormWindowState.Normal) { changingWindowMode=true; IsMinimized=false; ShowInTaskbar=false; RecreateHandle(); changingWindowMode=false; BringToFront(); } };
         ApplyRoundedRegion();
     }
     [DllImport("user32.dll")] static extern bool ReleaseCapture();
@@ -58,7 +59,7 @@ public sealed class CornerBar : Form {
     void ApplyRoundedRegion() { if(Width>20 && Height>20)Round(this,16); }
     void Open(object sender,EventArgs e) { if(OpenDashboard!=null)OpenDashboard(this,EventArgs.Empty); }
     protected override bool ShowWithoutActivation { get { return true; } }
-    protected override CreateParams CreateParams { get { CreateParams p=base.CreateParams; p.ExStyle|=0x08000000|0x00000080; return p; } }
+    protected override CreateParams CreateParams { get { CreateParams p=base.CreateParams; if(IsMinimized) { p.ExStyle&=~0x00000080; p.ExStyle&=~0x08000000; p.ExStyle|=0x00040000; } else p.ExStyle|=0x08000000|0x00000080; return p; } }
     public static string Countdown(double seconds) { int whole=(int)Math.Ceiling(Math.Max(0,seconds)); return (whole/60).ToString("00")+":"+(whole%60).ToString("00"); }
     static string Duration(double seconds) { int minutes=(int)Math.Floor(Math.Max(0,seconds)/60); int hours=minutes/60, rest=minutes%60; if(hours==0 && rest==0)return "0m"; if(hours==0)return rest+"m"; if(rest==0)return hours+"h"; return hours+"h "+rest+"m"; }
     public void UpdateStatus(bool hasPlan,int budgetSeconds,double usedSeconds,double nextSeconds,bool onBreak) {
@@ -74,7 +75,7 @@ public sealed class CornerBar : Form {
         AccessibleDescription="Allotted: "+allotted.Text+". Used: "+used.Text+". "+nextTitle.Text+": "+next.Text;
     }
     public void PlaceInCorner(Rectangle area) { if(!userPositioned)Location=new Point(Math.Max(area.Left,area.Right-Width-16),Math.Max(area.Top,area.Bottom-Height-16)); }
-    public void RestoreBar() { IsMinimized=false; WindowState=FormWindowState.Normal; ShowInTaskbar=false; Show(); BringToFront(); }
+    public void RestoreBar() { changingWindowMode=true; IsMinimized=false; WindowState=FormWindowState.Normal; ShowInTaskbar=false; RecreateHandle(); changingWindowMode=false; Show(); BringToFront(); }
     public void ResetPosition() { userPositioned=false; PlaceInCorner(Screen.FromControl(this).WorkingArea); }
     public void SetDashboardOpen(bool open) { heading.Text=open?"PACE  /  Click to close":"PACE  /  Click to open"; }
 }
