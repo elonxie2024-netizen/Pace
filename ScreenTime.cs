@@ -154,13 +154,14 @@ public class ScreenTime : Form {
     public ScreenTime() : this(null) { }
     public ScreenTime(string dataFolder) {
         if(dataFolder!=null)folder=dataFolder;
-        Text="Pace"; ClientSize=new Size(920,755); MinimumSize=new Size(940,795);
+        Text="Pace"; ClientSize=new Size(1120,805); MinimumSize=new Size(1140,845);
         BackColor=cream; ForeColor=ink; Font=new Font("Segoe UI",10); StartPosition=FormStartPosition.CenterScreen;
+        string art=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","pace-garden.png"); if(File.Exists(art)) { BackgroundImage=Image.FromFile(art); BackgroundImageLayout=ImageLayout.Stretch; }
         LoadState(); Today(); EnsureCurrentWeekPlan();
-        Label brand=AddLabel(this,"PACE",30,22,800,24,10); brand.ForeColor=green; brand.Font=new Font("Segoe UI Semibold",10);
-        Label hero=AddLabel(this,"Make room for life off screen.",30,55,850,52,27); hero.ForeColor=ink; hero.Font=new Font("Segoe UI Semibold",27);
-        Label subtitle=AddLabel(this,"A plan you choose. Gentle reminders. Always built on trust.",32,113,840,30,11); subtitle.ForeColor=Color.FromArgb(91,108,100);
-        Panel card=new Panel { Location=new Point(30,157),Size=new Size(850,220),BackColor=sage,Padding=new Padding(2) }; Controls.Add(card); Round(card,18);
+        Label brand=AddLabel(this,"PACE",135,30,850,24,10); brand.ForeColor=green; brand.BackColor=Color.Transparent; brand.Font=new Font("Segoe UI Semibold",10);
+        Label hero=AddLabel(this,"Make room for life off screen.",135,67,850,52,27); hero.ForeColor=ink; hero.BackColor=Color.Transparent; hero.Font=new Font("Segoe UI Semibold",27);
+        Label subtitle=AddLabel(this,"A plan you choose. Gentle reminders. Always built on trust.",137,125,840,30,11); subtitle.ForeColor=Color.FromArgb(91,108,100); subtitle.BackColor=Color.Transparent;
+        Panel card=new Panel { Location=new Point(135,169),Size=new Size(850,220),BackColor=sage,Padding=new Padding(2) }; Controls.Add(card); Round(card,18);
         todayLabel=AddLabel(card,"TODAY    "+DateTime.Now.ToString("dddd, MMM d"),22,15,760,25,10);
         remaining=AddLabel(card,"",22,46,780,52,30);
         detail=AddLabel(card,"",24,104,780,26,11);
@@ -169,8 +170,8 @@ public class ScreenTime : Form {
         extra=ButtonAt(card,"+ Add time",192,171,150,delegate { AddTime(); });
         ButtonAt(card,"End screen time",360,171,150,delegate { StartDailyShutdown(); });
         Label tracking=AddLabel(card,"Tracking is automatic while Pace runs.",535,177,285,28,10); tracking.ForeColor=Color.FromArgb(91,108,100);
-        status=AddLabel(this,"",32,389,850,28,11); status.ForeColor=Color.FromArgb(76,100,91);
-        tabs=new TabControl { Location=new Point(30,435),Size=new Size(850,285),Padding=new Point(18,7) }; Controls.Add(tabs);
+        status=AddLabel(this,"",137,407,850,28,11); status.ForeColor=Color.FromArgb(76,100,91); status.BackColor=Color.Transparent;
+        tabs=new TabControl { Location=new Point(135,453),Size=new Size(850,300),Padding=new Point(18,7),Appearance=TabAppearance.Buttons,DrawMode=TabDrawMode.OwnerDrawFixed,SizeMode=TabSizeMode.Fixed,ItemSize=new Size(150,34) }; tabs.DrawItem+=DrawTab; Controls.Add(tabs); Round(tabs,14);
         TabPage weekly=new TabPage("Weekly plan") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(weekly);
         string[] names={"Mon","Tue","Wed","Thu","Fri","Sat","Sun"};
         weekPicker=new ComboBox { Location=new Point(18,10),Size=new Size(550,28),DropDownStyle=ComboBoxStyle.DropDownList }; weekly.Controls.Add(weekPicker);
@@ -210,11 +211,14 @@ public class ScreenTime : Form {
         ResetWeekPicker();
         SystemEvents.SessionSwitch+=SessionChanged;
         SystemEvents.PowerModeChanged+=PowerChanged;
+        StyleInputs(this);
         timer=new System.Windows.Forms.Timer { Interval=1000 }; timer.Tick+=delegate { Tick(); }; timer.Start(); RefreshView();
         Shown+=delegate { cornerStarted=true; Hide(); UpdateCorner(); if(state.DailyShutdown) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowDailyShutdown(); } else if(state.BreakOffscreen) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowOffscreen(); } else if(state.BreakWaiting) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowFinished(); } else if(Breaking) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowBreak(state.BreakUntil); } PromptForWeek(); };
     }
     Label AddLabel(Control parent,string text,int x,int y,int w,int h,float size) { Label l=new Label { Text=text,Location=new Point(x,y),Size=new Size(w,h),Font=new Font("Segoe UI",size),ForeColor=ink }; parent.Controls.Add(l); return l; }
     static void Round(Control control,int radius) { Action apply=delegate { if(control.Width<2 || control.Height<2)return; GraphicsPath path=new GraphicsPath(); int d=radius*2; path.AddArc(0,0,d,d,180,90); path.AddArc(control.Width-d-1,0,d,d,270,90); path.AddArc(control.Width-d-1,control.Height-d-1,d,d,0,90); path.AddArc(0,control.Height-d-1,d,d,90,90); path.CloseFigure(); Region old=control.Region; control.Region=new Region(path); if(old!=null)old.Dispose(); path.Dispose(); }; control.Resize+=delegate { apply(); }; if(control.IsHandleCreated)apply(); else control.HandleCreated+=delegate { apply(); }; }
+    void StyleInputs(Control root) { foreach(Control control in root.Controls) { if(control is ComboBox || control is NumericUpDown || control is TextBox) { control.BackColor=Color.FromArgb(250,249,244); Round(control,7); } if(control.HasChildren)StyleInputs(control); } }
+    void DrawTab(object sender,DrawItemEventArgs e) { Rectangle r=e.Bounds; r.Inflate(-4,-3); bool selected=e.Index==tabs.SelectedIndex; using(GraphicsPath path=new GraphicsPath()) { int d=14; path.AddArc(r.X,r.Y,d,d,180,90); path.AddArc(r.Right-d,r.Y,d,d,270,90); path.AddArc(r.Right-d,r.Bottom-d,d,d,0,90); path.AddArc(r.X,r.Bottom-d,d,d,90,90); path.CloseFigure(); using(SolidBrush brush=new SolidBrush(selected?green:Color.FromArgb(224,235,225)))e.Graphics.FillPath(brush,path); } TextRenderer.DrawText(e.Graphics,tabs.TabPages[e.Index].Text,new Font("Segoe UI Semibold",9),r,selected?Color.White:ink,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.NoPrefix); }
     void ResetWeekPicker() {
         DateTime monday=Settings.Monday(DateTime.Now);
         weekPicker.Items.Clear();
