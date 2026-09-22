@@ -152,10 +152,10 @@ public class ScreenTime : Form {
     public ScreenTime(string dataFolder) {
         if(dataFolder!=null)folder=dataFolder;
         Text="Screen Time  A little more balance"; ClientSize=new Size(920,755); MinimumSize=new Size(940,795);
-        BackColor=Color.FromArgb(246,247,241); ForeColor=ink; Font=new Font("Segoe UI",10); StartPosition=FormStartPosition.CenterScreen;
+        BackColor=Color.FromArgb(238,243,236); ForeColor=ink; Font=new Font("Segoe UI",10); StartPosition=FormStartPosition.CenterScreen;
         LoadState(); Today(); EnsureCurrentWeekPlan();
         AddLabel(this,"SCREEN TIME  /  YOUR PACE",30,22,800,24,10);
-        AddLabel(this,"Make room for life off screen.",30,55,850,52,27);
+        Label hero=AddLabel(this,"Make room for life off screen.",30,55,850,52,27); hero.ForeColor=green;
         AddLabel(this,"A plan you choose. Gentle reminders. Always built on trust.",32,113,840,30,11);
         Panel card=new Panel { Location=new Point(30,157),Size=new Size(850,220),BackColor=Color.White }; Controls.Add(card);
         todayLabel=AddLabel(card,"TODAY    "+DateTime.Now.ToString("dddd, MMM d"),22,15,760,25,10);
@@ -174,16 +174,16 @@ public class ScreenTime : Form {
         AddLabel(weekly,"Plan type",590,10,70,25,10); planMode=new ComboBox { Location=new Point(660,8),Size=new Size(148,28),DropDownStyle=ComboBoxStyle.DropDownList }; planMode.Items.AddRange(new object[]{"Simple limits","Advanced blocks"}); planMode.SelectedIndex=0; weekly.Controls.Add(planMode);
         for(int i=0;i<7;i++) { int x=18+i*116; AddLabel(weekly,names[i],x,49,105,24,11); planHours[i]=new NumericUpDown { Location=new Point(x,77),Size=new Size(48,28),Minimum=0,Maximum=24 }; planMinutes[i]=new NumericUpDown { Location=new Point(x+51,77),Size=new Size(48,28),Minimum=0,Maximum=59,Increment=5 }; weekly.Controls.Add(planHours[i]); weekly.Controls.Add(planMinutes[i]); }
         weekHint=AddLabel(weekly,"",18,112,800,25,10);
-        blockEditor=new TextBox { Location=new Point(18,112),Size=new Size(630,72),Multiline=true,ScrollBars=ScrollBars.Vertical,Visible=false }; weekly.Controls.Add(blockEditor);
-        AddLabel(weekly,"Advanced format: one per line  Day | Start | End | Activity   (example: Mon | 09:00 | 10:30 | School)",18,186,630,30,9);
+        blockEditor=new TextBox { Location=new Point(18,112),Size=new Size(630,55),Multiline=true,ScrollBars=ScrollBars.Vertical,Visible=false }; weekly.Controls.Add(blockEditor);
+        AddLabel(weekly,"Advanced format: Day | Start | End | Activity   (example: Mon | 09:00 | 10:30 | School)",18,169,630,20,9);
         planMode.SelectedIndexChanged+=delegate { bool advanced=planMode.SelectedIndex==1; blockEditor.Visible=advanced; weekHint.Visible=!advanced; for(int i=0;i<7;i++) { planHours[i].Visible=!advanced; planMinutes[i].Visible=!advanced; } };
-        AddLabel(weekly,"Remind every",18,151,110,25,10);
-        interval=new ComboBox { Location=new Point(129,147),Size=new Size(70,28),DropDownStyle=ComboBoxStyle.DropDownList }; interval.Items.AddRange(new object[]{15,20,30}); interval.SelectedItem=state.Interval; weekly.Controls.Add(interval);
-        AddLabel(weekly,"min        Break",207,151,120,25,10);
-        breakMinutes=new NumericUpDown { Location=new Point(332,147),Size=new Size(65,28),Minimum=1,Maximum=60,Value=state.BreakMinutes }; weekly.Controls.Add(breakMinutes);
-        AddLabel(weekly,"min",406,151,45,25,10);
-        ButtonAt(weekly,"Save this week",660,146,148,36,delegate { int[] values=new int[7]; for(int i=0;i<7;i++)values[i]=(int)planHours[i].Value*60+(int)planMinutes[i].Value; state.SetWeek(selectedWeek,values); state.AdvancedPlan=planMode.SelectedIndex==1; if(state.AdvancedPlan)SaveBlocks(); state.PlanChanges.Add(new PlanChange { WeekStart=Settings.Monday(selectedWeek).ToString("yyyy-MM-dd"), ChangedAt=DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Summary=state.AdvancedPlan?"Advanced blocks saved":"Plan saved: "+FormatPlan(values) }); state.Interval=(int)interval.SelectedItem; state.BreakMinutes=(int)breakMinutes.Value; if(selectedWeek==Settings.Monday(DateTime.Now)) { day.Warned=false; day.Exhausted=false; } Save(); LoadWeekEditor(); RefreshView(); });
-        ButtonAt(weekly,"Copy previous week",475,197,180,32,delegate { WeeklyPlan previous=state.GetWeek(selectedWeek.AddDays(-7)); if(previous==null) { MessageBox.Show("There is no saved plan for the previous week yet.","Copy plan"); return; } for(int i=0;i<7;i++) { planHours[i].Value=previous.Minutes[i]/60; planMinutes[i].Value=previous.Minutes[i]%60; } weekHint.Text="Copied the previous week's plan. Save this week when it looks right."; });
+        AddLabel(weekly,"Remind every",18,198,110,25,10);
+        interval=new ComboBox { Location=new Point(129,194),Size=new Size(70,28),DropDownStyle=ComboBoxStyle.DropDownList }; interval.Items.AddRange(new object[]{15,20,30}); interval.SelectedItem=state.Interval; weekly.Controls.Add(interval);
+        AddLabel(weekly,"min        Break",207,198,120,25,10);
+        breakMinutes=new NumericUpDown { Location=new Point(332,194),Size=new Size(65,28),Minimum=1,Maximum=60,Value=state.BreakMinutes }; weekly.Controls.Add(breakMinutes);
+        AddLabel(weekly,"min",406,198,45,25,10);
+        ButtonAt(weekly,"Save this week",660,190,148,36,delegate { int[] values=new int[7]; for(int i=0;i<7;i++)values[i]=(int)planHours[i].Value*60+(int)planMinutes[i].Value; state.SetWeek(selectedWeek,values); state.AdvancedPlan=planMode.SelectedIndex==1; if(state.AdvancedPlan)SaveBlocks(); state.PlanChanges.Add(new PlanChange { WeekStart=Settings.Monday(selectedWeek).ToString("yyyy-MM-dd"), ChangedAt=DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Summary=state.AdvancedPlan?"Advanced blocks saved":"Plan saved: "+FormatPlan(values) }); state.Interval=(int)interval.SelectedItem; state.BreakMinutes=(int)breakMinutes.Value; if(selectedWeek==Settings.Monday(DateTime.Now)) { day.Warned=false; day.Exhausted=false; } Save(); LoadWeekEditor(); RefreshView(); });
+        ButtonAt(weekly,"Copy previous week",475,240,180,32,delegate { WeeklyPlan previous=state.GetWeek(selectedWeek.AddDays(-7)); if(previous==null) { MessageBox.Show("There is no saved plan for the previous week yet.","Copy plan"); return; } for(int i=0;i<7;i++) { planHours[i].Value=previous.Minutes[i]/60; planMinutes[i].Value=previous.Minutes[i]%60; } weekHint.Text="Copied the previous week's plan. Save this week when it looks right."; });
         TabPage log=new TabPage("Time & reasons") { BackColor=Color.White }; tabs.TabPages.Add(log);
         history=new ListBox { Dock=DockStyle.Fill,BorderStyle=BorderStyle.None,HorizontalScrollbar=true }; log.Controls.Add(history);
         TabPage activity=new TabPage("Where time went") { BackColor=Color.White }; tabs.TabPages.Add(activity);
