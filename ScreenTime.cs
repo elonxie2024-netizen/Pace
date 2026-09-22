@@ -71,7 +71,8 @@ public sealed class BreakScreen : Form {
     public void ShowBreak(DateTime end) { until=end; title.Text="TAKE A REAL BREAK"; note.Text="Step away from the screen. Lock Windows with Win+L if you leave."; continueButton.Visible=false; cancel.Visible=true; offscreen.Visible=true; Show(); WindowState=FormWindowState.Maximized; BringToFront(); UpdateTimer(); }
     public void ShowFinished() { title.Text="BREAK COMPLETE"; note.Text="Your screen time will not resume until you choose Continue."; timerLabel.Text="00:00"; continueButton.Visible=true; cancel.Visible=true; offscreen.Visible=false; Show(); BringToFront(); UpdateTimer(); }
     public void ShowOffscreen() { title.Text="OFFSCREEN ACTIVITY"; note.Text="Continue when you’re ready. Screen time stays stopped until then."; timerLabel.Text=""; continueButton.Visible=true; cancel.Visible=true; offscreen.Visible=false; Show(); BringToFront(); }
-    public void ShowDailyShutdown() { title.Text="OFFSCREEN ACTIVITY"; note.Text="Your daily screen-time plan is complete. Add more time if you have a reason."; timerLabel.Text=""; continueButton.Visible=false; cancel.Visible=false; offscreen.Visible=false; addMore.Visible=true; Show(); WindowState=FormWindowState.Maximized; BringToFront(); }
+    public void ShowDailyShutdown() { ShowDailyShutdown("Your daily screen-time plan is complete. Add more time if you have a reason."); }
+    public void ShowDailyShutdown(string message) { title.Text="OFFSCREEN ACTIVITY"; note.Text=message; timerLabel.Text=""; continueButton.Visible=false; cancel.Visible=false; offscreen.Visible=false; addMore.Visible=true; Show(); WindowState=FormWindowState.Maximized; BringToFront(); }
     public void SetOffscreen() { ShowOffscreen(); }
     void UpdateTimer() { double left=(until-DateTime.UtcNow).TotalSeconds; if(continueButton.Visible)timerLabel.Text="00:00"; else timerLabel.Text=left<=0?"00:00":((int)left/60).ToString("00")+":"+((int)left%60).ToString("00"); }
     protected override bool ShowWithoutActivation { get { return true; } }
@@ -133,6 +134,7 @@ public class ScreenTime : Form {
     DateTime cleanupUntil;
     Label cleanupLabel;
     bool cleanupActive;
+    bool cleanupClosesBlock;
     int cleanupLastPing=-1;
     BreakScreen breakScreen;
     CornerBar cornerBar;
@@ -140,6 +142,7 @@ public class ScreenTime : Form {
     bool cornerStarted;
     NumericUpDown alertVolume;
     ListBox activityList;
+    ActivityChart activityChart;
     string foregroundName="";
     double foregroundSince;
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
@@ -150,6 +153,7 @@ public class ScreenTime : Form {
     bool HasPlan { get { return state.GetWeek(DateTime.Now)!=null; } }
     AdvancedBlock ActiveBlock { get { if(!state.AdvancedPlan)return null; string key=Settings.Monday(DateTime.Now).ToString("yyyy-MM-dd"); int dow=(int)DateTime.Now.DayOfWeek; TimeSpan now=DateTime.Now.TimeOfDay; return state.Blocks.Find(b=>b.WeekStart==key && b.Day==dow && TimeSpan.Parse(b.Start)<=now && now<TimeSpan.Parse(b.End)); } }
     int Budget { get { WeeklyPlan week=state.GetWeek(DateTime.Now); AdvancedBlock block=ActiveBlock; if(state.AdvancedPlan)return block==null?0:(int)(TimeSpan.Parse(block.End)-TimeSpan.Parse(block.Start)).TotalSeconds+day.Extra*60; return (week==null?0:week.Minutes[((int)DateTime.Now.DayOfWeek+6)%7]*60)+day.Extra*60; } }
+    DateTime? NextBlockStart { get { DateTime monday=Settings.Monday(DateTime.Now); DateTime? best=null; foreach(AdvancedBlock b in state.Blocks)if(b.WeekStart==monday.ToString("yyyy-MM-dd")) { DateTime candidate=monday.AddDays(((b.Day+6)%7)).Add(TimeSpan.Parse(b.Start)); if(candidate>DateTime.Now && (best==null || candidate<best))best=candidate; } return best; } }
     bool Breaking { get { return state.BreakUntil > DateTime.UtcNow; } }
     public ScreenTime() : this(null) { }
     public ScreenTime(string dataFolder) {
@@ -193,7 +197,8 @@ public class ScreenTime : Form {
         TabPage activity=new TabPage("Where time went") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(activity);
         AddLabel(activity,"Your screen time, grouped by app or visible browser tab.",18,16,790,28,13);
         AddLabel(activity,"Everything stays local. Browser entries use the visible tab title; exact URLs require a browser extension.",18,48,790,42,10);
-        activityList=new ListBox { Location=new Point(18,96),Size=new Size(790,150),BorderStyle=BorderStyle.None,HorizontalScrollbar=true }; activity.Controls.Add(activityList);
+        activityChart=new ActivityChart { Location=new Point(18,92),Size=new Size(385,160) }; activity.Controls.Add(activityChart);
+        activityList=new ListBox { Location=new Point(420,92),Size=new Size(388,160),BorderStyle=BorderStyle.None,HorizontalScrollbar=true,BackColor=Color.FromArgb(252,251,247) }; activity.Controls.Add(activityList);
         TabPage alerts=new TabPage("Reminders & sound") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(alerts);
         AddLabel(alerts,"A clearer reminder, even when you are busy.",18,18,790,35,16);
         AddLabel(alerts,"Three distinct chimes. Adjust their volume here, then try a reminder.",18,62,790,30,11);
@@ -213,7 +218,7 @@ public class ScreenTime : Form {
         SystemEvents.PowerModeChanged+=PowerChanged;
         StyleInputs(this);
         timer=new System.Windows.Forms.Timer { Interval=1000 }; timer.Tick+=delegate { Tick(); }; timer.Start(); RefreshView();
-        Shown+=delegate { cornerStarted=true; Hide(); UpdateCorner(); if(state.DailyShutdown) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowDailyShutdown(); } else if(state.BreakOffscreen) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowOffscreen(); } else if(state.BreakWaiting) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowFinished(); } else if(Breaking) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowBreak(state.BreakUntil); } PromptForWeek(); };
+        Shown+=delegate { cornerStarted=true; Hide(); UpdateCorner(); if(state.AdvancedPlan && ActiveBlock==null)StartDailyShutdown(); else if(state.DailyShutdown) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowDailyShutdown(); } else if(state.BreakOffscreen) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowOffscreen(); } else if(state.BreakWaiting) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowFinished(); } else if(Breaking) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowBreak(state.BreakUntil); } PromptForWeek(); };
     }
     Label AddLabel(Control parent,string text,int x,int y,int w,int h,float size) { Label l=new Label { Text=text,Location=new Point(x,y),Size=new Size(w,h),Font=new Font("Segoe UI",size),ForeColor=ink }; parent.Controls.Add(l); return l; }
     static void Round(Control control,int radius) { Action apply=delegate { if(control.Width<2 || control.Height<2)return; GraphicsPath path=new GraphicsPath(); int d=radius*2; path.AddArc(0,0,d,d,180,90); path.AddArc(control.Width-d-1,0,d,d,270,90); path.AddArc(control.Width-d-1,control.Height-d-1,d,d,0,90); path.AddArc(0,control.Height-d-1,d,d,90,90); path.CloseFigure(); Region old=control.Region; control.Region=new Region(path); if(old!=null)old.Dispose(); path.Dispose(); }; control.Resize+=delegate { apply(); }; if(control.IsHandleCreated)apply(); else control.HandleCreated+=delegate { apply(); }; }
@@ -295,8 +300,10 @@ public class ScreenTime : Form {
         // A suspended system must not accrue the elapsed sleep interval.
         if(elapsed>5)elapsed=0;
         string previous=day.Date; Today(); if(previous!=day.Date) { elapsed=0; todayLabel.Text="TODAY  "+DateTime.Now.ToString("dddd, MMM d"); ResetWeekPicker(); }
+        AdvancedBlock before=ActiveBlock;
+        if(state.AdvancedPlan && state.DailyShutdown && before!=null) { state.DailyShutdown=false; state.BreakOffscreen=false; day.ActiveBlock=""; day.BlockUsed=0; day.Exhausted=false; if(breakScreen!=null)breakScreen.Hide(); Save(); }
         ApplyElapsed(elapsed,sessionLocked);
-        if(state.AdvancedPlan && !state.DailyShutdown && day.ActiveBlock.Length>0 && ActiveBlock==null)StartDailyShutdown();
+        if(state.AdvancedPlan && !state.DailyShutdown && before==null && day.ActiveBlock.Length>0)StartDailyShutdown();
         UpdateCleanup();
         TrackForeground(elapsed);
         if(++ticks%15==0)Save(); RefreshView(); if(!sessionLocked)PromptForWeek();
@@ -351,6 +358,7 @@ public class ScreenTime : Form {
         foreach(ActivityRecord a in sorted)if(a.Seconds>=1)activityList.Items.Add(a.Category+"  ·  "+a.Name+": "+ActivityDuration(a.Seconds));
         if(activityList.Items.Count==0)activityList.Items.Add("No foreground activity recorded yet.");
         activityList.EndUpdate();
+        activityChart.SetData(day.Activities);
     }
     void ApplyElapsed(double elapsed,bool locked) {
         bool breakFinished=state.BreakUntil!=DateTime.MinValue && !Breaking;
@@ -363,6 +371,7 @@ public class ScreenTime : Form {
             if(state.AdvancedPlan && active!=null) { string key=active.WeekStart+":"+active.Day+":"+active.Start; if(key!=day.ActiveBlock) { day.ActiveBlock=key; day.BlockUsed=0; day.Warned=false; } day.BlockUsed+=elapsed; } else if(!state.AdvancedPlan) day.Used+=elapsed;
             if(!cleanupActive)day.SinceReminder+=elapsed;
             double used=state.AdvancedPlan?day.BlockUsed:day.Used; double left=Budget-used;
+            if(state.AdvancedPlan && active!=null && !cleanupActive && !day.Warned && (DateTime.Today.Add(TimeSpan.Parse(active.End))-DateTime.Now).TotalSeconds<=60) { day.Warned=true; cleanupClosesBlock=true; BeginCleanup(); }
             if(HasPlan && left<=0 && !day.Exhausted) { day.Exhausted=true; day.BreakEarned=false; StartDailyShutdown(); }
             else if(HasPlan && left>0 && left<=600 && !day.Warned) { day.Warned=true; Notify("Time to wrap up", "You have "+Math.Ceiling(left/60)+" minutes left in your plan today. Find a good stopping point."); }
             else if(!Breaking && !cleanupActive && day.SinceReminder>=state.Interval*60) { day.SinceReminder=0; BeginCleanup(); }
@@ -385,12 +394,12 @@ public class ScreenTime : Form {
     void UpdateCleanup() {
         if(!cleanupActive)return;
         double left=(cleanupUntil-DateTime.UtcNow).TotalSeconds;
-        if(left<=0) { cleanupActive=false; if(cleanupTimer!=null)cleanupTimer.Stop(); if(toast!=null)toast.Close(); StartBreak(); return; }
+        if(left<=0) { cleanupActive=false; if(cleanupTimer!=null)cleanupTimer.Stop(); if(toast!=null)toast.Close(); if(cleanupClosesBlock) { cleanupClosesBlock=false; StartDailyShutdown(); } else StartBreak(); return; }
         int whole=(int)Math.Ceiling(left); if((whole==30 || whole==10) && cleanupLastPing!=whole) { cleanupLastPing=whole; alertSound.Play(state.AlertVolume); }
         if(cleanupLabel!=null && !cleanupLabel.IsDisposed)cleanupLabel.Text="Cleanup time: "+CornerBar.Countdown(left);
         PositionReminder();
     }
-    void CancelCleanup() { cleanupActive=false; if(cleanupTimer!=null)cleanupTimer.Stop(); if(toast!=null)toast.Close(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
+    void CancelCleanup() { cleanupActive=false; cleanupClosesBlock=false; if(cleanupTimer!=null)cleanupTimer.Stop(); if(toast!=null)toast.Close(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
     void StartBreak() {
         if(Breaking || state.BreakWaiting)return;
         state.BreakUntil=DateTime.UtcNow.AddMinutes(state.BreakMinutes); state.BreakWaiting=false; state.BreakOffscreen=false; day.SinceReminder=0; Save();
@@ -400,7 +409,8 @@ public class ScreenTime : Form {
     void StartDailyShutdown() {
         state.DailyShutdown=true; state.BreakWaiting=false; state.BreakOffscreen=true; state.BreakUntil=DateTime.MinValue; Save();
         if(breakScreen==null || breakScreen.IsDisposed)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime);
-        breakScreen.ShowDailyShutdown(); RefreshView();
+        DateTime? next=state.AdvancedPlan?NextBlockStart:null; string message=next==null?"Your daily screen-time plan is complete. Add more time if you have a reason.":"This block is complete. Your next block starts "+next.Value.ToString("ddd h:mm tt")+".";
+        breakScreen.ShowDailyShutdown(message); RefreshView();
     }
     void CancelBreak() { if(!Breaking && !state.BreakWaiting && !state.BreakOffscreen)return; state.BreakUntil=DateTime.MinValue; state.BreakWaiting=false; state.BreakOffscreen=false; if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
     void ContinueBreak() { if(!state.BreakWaiting && !state.BreakOffscreen)return; state.BreakWaiting=false; state.BreakOffscreen=false; if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
