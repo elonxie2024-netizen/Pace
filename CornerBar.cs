@@ -26,7 +26,7 @@ public sealed class CornerBar : Form {
         Font=new Font("Segoe UI",10); Cursor=Cursors.Hand;
         heading=LabelAt("PACE  /  Click to open",16,9,195,18,9);
         endDay=ActionButton("End day",220,7,58,22); endDay.Click+=delegate { if(EndDayClicked!=null)EndDayClicked(this,EventArgs.Empty); };
-        minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { IsMinimized=true; ShowInTaskbar=true; WindowState=FormWindowState.Minimized; };
+        minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { ShowInTaskbar=true; IsMinimized=true; WindowState=FormWindowState.Minimized; };
         resetPosition=ActionButton("⌂",378,7,20,20); resetPosition.Font=new Font("Segoe UI Symbol",10); resetPosition.Click+=delegate { ResetPosition(); };
         LabelAt("ALLOTTED",16,34,75,18,8);
         LabelAt("USED",156,34,130,18,8);
@@ -43,9 +43,8 @@ public sealed class CornerBar : Form {
         Click+=Open;
         MouseDown+=DragFromEmptySpace;
         FormClosing+=delegate(object s,FormClosingEventArgs e) { if(e.CloseReason==CloseReason.UserClosing)e.Cancel=true; };
-        Shown+=delegate { ApplyRoundedRegion(); };
-        Resize+=delegate { ApplyRoundedRegion(); };
         SizeChanged+=delegate { if(IsMinimized && WindowState==FormWindowState.Normal) { IsMinimized=false; ShowInTaskbar=false; BringToFront(); } };
+        ApplyRoundedRegion();
     }
     [DllImport("user32.dll")] static extern bool ReleaseCapture();
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd,int msg,int wParam,int lParam);
@@ -54,7 +53,7 @@ public sealed class CornerBar : Form {
         Label label=new Label { Text=text,Location=new Point(x,y),Size=new Size(w,h),ForeColor=Color.FromArgb(240,246,230),Font=new Font("Segoe UI",size),AutoEllipsis=true };
         Controls.Add(label); return label;
     }
-    Button ActionButton(string text,int x,int y,int w,int h) { Button button=new Button { Text=text,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(76,139,113),ForeColor=Color.White,Font=new Font("Segoe UI Semibold",8),Cursor=Cursors.Hand,TabStop=false }; button.FlatAppearance.BorderSize=0; button.FlatAppearance.MouseOverBackColor=Color.FromArgb(93,157,130); Controls.Add(button); button.HandleCreated+=delegate { Round(button,7); }; return button; }
+    Button ActionButton(string text,int x,int y,int w,int h) { Button button=new Button { Text=text,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(76,139,113),ForeColor=Color.White,Font=new Font("Segoe UI Semibold",8),Cursor=Cursors.Hand,TabStop=false }; button.FlatAppearance.BorderSize=0; button.FlatAppearance.MouseOverBackColor=Color.FromArgb(93,157,130); Controls.Add(button); Round(button,7); return button; }
     static void Round(Control control,int radius) { GraphicsPath path=new GraphicsPath(); int d=radius*2; path.AddArc(0,0,d,d,180,90); path.AddArc(control.Width-d-1,0,d,d,270,90); path.AddArc(control.Width-d-1,control.Height-d-1,d,d,0,90); path.AddArc(0,control.Height-d-1,d,d,90,90); path.CloseFigure(); control.Region=new Region(path); path.Dispose(); }
     void ApplyRoundedRegion() { if(Width>20 && Height>20)Round(this,16); }
     void Open(object sender,EventArgs e) { if(OpenDashboard!=null)OpenDashboard(this,EventArgs.Empty); }
