@@ -9,6 +9,7 @@ using System.Threading;
 using System.Text;
 using Microsoft.Win32;
 using System.Runtime.InteropServices;
+using System.Drawing.Drawing2D;
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -159,7 +160,7 @@ public class ScreenTime : Form {
         Label brand=AddLabel(this,"PACE",30,22,800,24,10); brand.ForeColor=green; brand.Font=new Font("Segoe UI Semibold",10);
         Label hero=AddLabel(this,"Make room for life off screen.",30,55,850,52,27); hero.ForeColor=ink; hero.Font=new Font("Segoe UI Semibold",27);
         Label subtitle=AddLabel(this,"A plan you choose. Gentle reminders. Always built on trust.",32,113,840,30,11); subtitle.ForeColor=Color.FromArgb(91,108,100);
-        Panel card=new Panel { Location=new Point(30,157),Size=new Size(850,220),BackColor=sage,Padding=new Padding(2) }; Controls.Add(card);
+        Panel card=new Panel { Location=new Point(30,157),Size=new Size(850,220),BackColor=sage,Padding=new Padding(2) }; Controls.Add(card); Round(card,18);
         todayLabel=AddLabel(card,"TODAY    "+DateTime.Now.ToString("dddd, MMM d"),22,15,760,25,10);
         remaining=AddLabel(card,"",22,46,780,52,30);
         detail=AddLabel(card,"",24,104,780,26,11);
@@ -185,7 +186,7 @@ public class ScreenTime : Form {
         breakMinutes=new NumericUpDown { Location=new Point(332,194),Size=new Size(65,28),Minimum=1,Maximum=60,Value=state.BreakMinutes }; weekly.Controls.Add(breakMinutes);
         AddLabel(weekly,"min",406,198,45,25,10);
         ButtonAt(weekly,"Save this week",660,190,148,36,delegate { int[] values=new int[7]; for(int i=0;i<7;i++)values[i]=(int)planHours[i].Value*60+(int)planMinutes[i].Value; state.SetWeek(selectedWeek,values); state.AdvancedPlan=planMode.SelectedIndex==1; if(state.AdvancedPlan)SaveBlocks(); state.PlanChanges.Add(new PlanChange { WeekStart=Settings.Monday(selectedWeek).ToString("yyyy-MM-dd"), ChangedAt=DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Summary=state.AdvancedPlan?"Advanced blocks saved":"Plan saved: "+FormatPlan(values) }); state.Interval=(int)interval.SelectedItem; state.BreakMinutes=(int)breakMinutes.Value; if(selectedWeek==Settings.Monday(DateTime.Now)) { day.Warned=false; day.Exhausted=false; } Save(); LoadWeekEditor(); RefreshView(); });
-        ButtonAt(weekly,"Copy previous week",475,229,180,28,delegate { WeeklyPlan previous=state.GetWeek(selectedWeek.AddDays(-7)); if(previous==null) { MessageBox.Show("There is no saved plan for the previous week yet.","Copy plan"); return; } for(int i=0;i<7;i++) { planHours[i].Value=previous.Minutes[i]/60; planMinutes[i].Value=previous.Minutes[i]%60; } weekHint.Text="Copied the previous week's plan. Save this week when it looks right."; });
+        ButtonAt(weekly,"Copy previous week",465,190,180,36,delegate { WeeklyPlan previous=state.GetWeek(selectedWeek.AddDays(-7)); if(previous==null) { MessageBox.Show("There is no saved plan for the previous week yet.","Copy plan"); return; } for(int i=0;i<7;i++) { planHours[i].Value=previous.Minutes[i]/60; planMinutes[i].Value=previous.Minutes[i]%60; } weekHint.Text="Copied the previous week's plan. Save this week when it looks right."; });
         TabPage log=new TabPage("Time & reasons") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(log);
         history=new ListBox { Dock=DockStyle.Fill,BorderStyle=BorderStyle.None,HorizontalScrollbar=true }; log.Controls.Add(history);
         TabPage activity=new TabPage("Where time went") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(activity);
@@ -213,6 +214,7 @@ public class ScreenTime : Form {
         Shown+=delegate { cornerStarted=true; Hide(); UpdateCorner(); if(state.DailyShutdown) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowDailyShutdown(); } else if(state.BreakOffscreen) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowOffscreen(); } else if(state.BreakWaiting) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowFinished(); } else if(Breaking) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowBreak(state.BreakUntil); } PromptForWeek(); };
     }
     Label AddLabel(Control parent,string text,int x,int y,int w,int h,float size) { Label l=new Label { Text=text,Location=new Point(x,y),Size=new Size(w,h),Font=new Font("Segoe UI",size),ForeColor=ink }; parent.Controls.Add(l); return l; }
+    static void Round(Control control,int radius) { Action apply=delegate { if(control.Width<2 || control.Height<2)return; GraphicsPath path=new GraphicsPath(); int d=radius*2; path.AddArc(0,0,d,d,180,90); path.AddArc(control.Width-d-1,0,d,d,270,90); path.AddArc(control.Width-d-1,control.Height-d-1,d,d,0,90); path.AddArc(0,control.Height-d-1,d,d,90,90); path.CloseFigure(); Region old=control.Region; control.Region=new Region(path); if(old!=null)old.Dispose(); path.Dispose(); }; control.Resize+=delegate { apply(); }; if(control.IsHandleCreated)apply(); else control.HandleCreated+=delegate { apply(); }; }
     void ResetWeekPicker() {
         DateTime monday=Settings.Monday(DateTime.Now);
         weekPicker.Items.Clear();
@@ -255,7 +257,7 @@ public class ScreenTime : Form {
         base.Dispose(disposing);
     }
     Button ButtonAt(Control p,string t,int x,int y,int w,EventHandler a) { return ButtonAt(p,t,x,y,w,34,a); }
-    Button ButtonAt(Control p,string t,int x,int y,int w,int h,EventHandler a) { Button b=new Button { Text=t,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=green,ForeColor=Color.White,Cursor=Cursors.Hand,Font=new Font("Segoe UI Semibold",9) }; b.FlatAppearance.BorderSize=0; b.FlatAppearance.MouseOverBackColor=Color.FromArgb(76,145,121); b.FlatAppearance.MouseDownBackColor=Color.FromArgb(46,105,86); b.Click+=a; p.Controls.Add(b); return b; }
+    Button ButtonAt(Control p,string t,int x,int y,int w,int h,EventHandler a) { Button b=new Button { Text=t,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=green,ForeColor=Color.White,Cursor=Cursors.Hand,Font=new Font("Segoe UI Semibold",9) }; b.FlatAppearance.BorderSize=0; b.FlatAppearance.MouseOverBackColor=Color.FromArgb(76,145,121); b.FlatAppearance.MouseDownBackColor=Color.FromArgb(46,105,86); b.Click+=a; p.Controls.Add(b); Round(b,9); return b; }
     void LoadState() {
         state=new Settings();
         if(!File.Exists(StatePath))return;
@@ -431,7 +433,11 @@ public class ScreenTime : Form {
     static string FormatDuration(double seconds) { int min=(int)Math.Floor(Math.Max(0,seconds)/60); int hours=min/60, minutes=min%60; if(hours==0 && minutes==0)return "0m"; if(hours==0)return minutes+"m"; if(minutes==0)return hours+"h"; return hours+"h "+minutes+"m"; }
     void UpdateCorner() {
         if(cornerBar==null || cornerBar.IsDisposed)return;
-        cornerBar.UpdateStatus(HasPlan,Budget,day.Used,Breaking?(state.BreakUntil-DateTime.UtcNow).TotalSeconds:state.Interval*60-day.SinceReminder,Breaking||state.BreakWaiting);
+        double used=state.AdvancedPlan?day.BlockUsed:day.Used;
+        double periodic=Math.Max(0,state.Interval*60-day.SinceReminder), closing=Math.Max(0,Budget-used);
+        bool closingSoon=HasPlan && closing<=periodic;
+        double next=Breaking?(state.BreakUntil-DateTime.UtcNow).TotalSeconds:(closingSoon?closing:periodic);
+        cornerBar.UpdateStatus(HasPlan,Budget,used,next,Breaking||state.BreakWaiting,closingSoon);
         cornerBar.PlaceInCorner(Screen.PrimaryScreen.WorkingArea);
         cornerBar.SetDashboardOpen(Visible);
         if(cornerStarted && !cornerBar.Visible)cornerBar.Show();

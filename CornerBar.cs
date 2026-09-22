@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Windows.Forms;
+using System.Drawing.Drawing2D;
 
 // A separate, unowned window stays visible when the dashboard is hidden/minimized.
 public sealed class CornerBar : Form {
@@ -34,22 +35,29 @@ public sealed class CornerBar : Form {
         addTime.Click-=Open; takeBreak.Click-=Open; endDay.Click-=Open;
         Click+=Open;
         FormClosing+=delegate(object s,FormClosingEventArgs e) { if(e.CloseReason==CloseReason.UserClosing)e.Cancel=true; };
+        Shown+=delegate { ApplyRoundedRegion(); };
+        Resize+=delegate { ApplyRoundedRegion(); };
     }
     Label LabelAt(string text,int x,int y,int w,int h,float size) {
         Label label=new Label { Text=text,Location=new Point(x,y),Size=new Size(w,h),ForeColor=Color.FromArgb(240,246,230),Font=new Font("Segoe UI",size),AutoEllipsis=true };
         Controls.Add(label); return label;
     }
-    Button ActionButton(string text,int x,int y,int w,int h) { Button button=new Button { Text=text,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(76,139,113),ForeColor=Color.White,Font=new Font("Segoe UI Semibold",8),Cursor=Cursors.Hand,TabStop=false }; button.FlatAppearance.BorderSize=0; button.FlatAppearance.MouseOverBackColor=Color.FromArgb(93,157,130); Controls.Add(button); return button; }
+    Button ActionButton(string text,int x,int y,int w,int h) { Button button=new Button { Text=text,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(76,139,113),ForeColor=Color.White,Font=new Font("Segoe UI Semibold",8),Cursor=Cursors.Hand,TabStop=false }; button.FlatAppearance.BorderSize=0; button.FlatAppearance.MouseOverBackColor=Color.FromArgb(93,157,130); Controls.Add(button); button.HandleCreated+=delegate { Round(button,7); }; return button; }
+    static void Round(Control control,int radius) { GraphicsPath path=new GraphicsPath(); int d=radius*2; path.AddArc(0,0,d,d,180,90); path.AddArc(control.Width-d-1,0,d,d,270,90); path.AddArc(control.Width-d-1,control.Height-d-1,d,d,0,90); path.AddArc(0,control.Height-d-1,d,d,90,90); path.CloseFigure(); control.Region=new Region(path); path.Dispose(); }
+    void ApplyRoundedRegion() { if(Width>20 && Height>20)Round(this,16); }
     void Open(object sender,EventArgs e) { if(OpenDashboard!=null)OpenDashboard(this,EventArgs.Empty); }
     protected override bool ShowWithoutActivation { get { return true; } }
     protected override CreateParams CreateParams { get { CreateParams p=base.CreateParams; p.ExStyle|=0x08000000|0x00000080; return p; } }
     public static string Countdown(double seconds) { int whole=(int)Math.Ceiling(Math.Max(0,seconds)); return (whole/60).ToString("00")+":"+(whole%60).ToString("00"); }
     static string Duration(double seconds) { int minutes=(int)Math.Floor(Math.Max(0,seconds)/60); int hours=minutes/60, rest=minutes%60; if(hours==0 && rest==0)return "0m"; if(hours==0)return rest+"m"; if(rest==0)return hours+"h"; return hours+"h "+rest+"m"; }
     public void UpdateStatus(bool hasPlan,int budgetSeconds,double usedSeconds,double nextSeconds,bool onBreak) {
+        UpdateStatus(hasPlan,budgetSeconds,usedSeconds,nextSeconds,onBreak,false);
+    }
+    public void UpdateStatus(bool hasPlan,int budgetSeconds,double usedSeconds,double nextSeconds,bool onBreak,bool closing) {
         allotted.Text=hasPlan?Duration(budgetSeconds):"No plan";
         used.Text=Duration(usedSeconds);
         used.ForeColor=hasPlan && usedSeconds>budgetSeconds ? Color.FromArgb(255,190,125) : Color.FromArgb(240,246,230);
-        nextTitle.Text=onBreak?"BREAK LEFT":"NEXT BREAK";
+        nextTitle.Text=onBreak?"BREAK LEFT":closing?"CLOSES IN":"NEXT BREAK";
         next.Text=Countdown(nextSeconds);
         progress.Value=!hasPlan?0:budgetSeconds<=0?1000:(int)Math.Max(0,Math.Min(1000,usedSeconds/budgetSeconds*1000));
         AccessibleDescription="Allotted: "+allotted.Text+". Used: "+used.Text+". "+nextTitle.Text+": "+next.Text;
