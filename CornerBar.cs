@@ -19,14 +19,14 @@ public sealed class CornerBar : Form {
     public event EventHandler TakeBreakClicked;
     public event EventHandler EndDayClicked;
     public CornerBar() {
-        Text="Screen Time status"; AccessibleName=Text;
+        Text="Pace"; AccessibleName="Pace screen-time bar"; Icon=SystemIcons.Application;
         AutoScaleMode=AutoScaleMode.Dpi; ClientSize=new Size(438,112);
         FormBorderStyle=FormBorderStyle.None; StartPosition=FormStartPosition.Manual;
         ShowInTaskbar=false; TopMost=true; BackColor=Color.FromArgb(35,67,58);
         Font=new Font("Segoe UI",10); Cursor=Cursors.Hand;
         heading=LabelAt("PACE  /  Click to open",16,9,195,18,9);
         endDay=ActionButton("End day",220,7,58,22); endDay.Click+=delegate { if(EndDayClicked!=null)EndDayClicked(this,EventArgs.Empty); };
-        minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { IsMinimized=true; Hide(); };
+        minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { IsMinimized=true; ShowInTaskbar=true; WindowState=FormWindowState.Minimized; };
         resetPosition=ActionButton("⌂",378,7,20,20); resetPosition.Font=new Font("Segoe UI Symbol",10); resetPosition.Click+=delegate { ResetPosition(); };
         LabelAt("ALLOTTED",16,34,75,18,8);
         LabelAt("USED",156,34,130,18,8);
@@ -45,6 +45,7 @@ public sealed class CornerBar : Form {
         FormClosing+=delegate(object s,FormClosingEventArgs e) { if(e.CloseReason==CloseReason.UserClosing)e.Cancel=true; };
         Shown+=delegate { ApplyRoundedRegion(); };
         Resize+=delegate { ApplyRoundedRegion(); };
+        SizeChanged+=delegate { if(IsMinimized && WindowState==FormWindowState.Normal) { IsMinimized=false; ShowInTaskbar=false; BringToFront(); } };
     }
     [DllImport("user32.dll")] static extern bool ReleaseCapture();
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd,int msg,int wParam,int lParam);
@@ -74,7 +75,7 @@ public sealed class CornerBar : Form {
         AccessibleDescription="Allotted: "+allotted.Text+". Used: "+used.Text+". "+nextTitle.Text+": "+next.Text;
     }
     public void PlaceInCorner(Rectangle area) { if(!userPositioned)Location=new Point(Math.Max(area.Left,area.Right-Width-16),Math.Max(area.Top,area.Bottom-Height-16)); }
-    public void RestoreBar() { IsMinimized=false; Show(); BringToFront(); }
+    public void RestoreBar() { IsMinimized=false; WindowState=FormWindowState.Normal; ShowInTaskbar=false; Show(); BringToFront(); }
     public void ResetPosition() { userPositioned=false; PlaceInCorner(Screen.FromControl(this).WorkingArea); }
     public void SetDashboardOpen(bool open) { heading.Text=open?"PACE  /  Click to close":"PACE  /  Click to open"; }
 }
