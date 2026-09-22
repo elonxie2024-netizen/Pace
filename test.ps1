@@ -114,6 +114,12 @@ try {
     Assert ($loaded.Weeks.Count -eq 2 -and $loaded.GetWeek($nextWeek).Minutes[1] -eq 70) 'Dated plans must survive reload'
     Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason') 'Usage, extra time, and reasons must survive reload'
     Assert ($loaded.AlertVolume -eq 73) 'Reminder volume must survive reload'
+    $loaded.DailyShutdown = $true
+    $loaded.BreakWaiting = $true
+    $loaded.BreakOffscreen = $true
+    $loaded.BreakUntil = [datetime]::UtcNow.AddMinutes(5)
+    $app.GetType().GetMethod('ResetForNewDay',$flags).Invoke($app,@())
+    Assert (-not $loaded.DailyShutdown -and -not $loaded.BreakWaiting -and -not $loaded.BreakOffscreen -and $loaded.BreakUntil -eq [datetime]::MinValue) 'A new day must automatically clear the previous shutdown and break states'
     Write-Host 'PASS: weekly plans, automatic accounting, breaks, warnings, persistent corner, reminder placement, countdowns, and persistence including volume.'
 } finally {
     if ($app) { $app.Dispose() }

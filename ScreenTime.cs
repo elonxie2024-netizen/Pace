@@ -299,7 +299,7 @@ public class ScreenTime : Form {
         double now=watch.Elapsed.TotalSeconds, elapsed=now-last; last=now;
         // A suspended system must not accrue the elapsed sleep interval.
         if(elapsed>5)elapsed=0;
-        string previous=day.Date; Today(); if(previous!=day.Date) { elapsed=0; todayLabel.Text="TODAY  "+DateTime.Now.ToString("dddd, MMM d"); ResetWeekPicker(); }
+        string previous=day.Date; Today(); if(previous!=day.Date) { elapsed=0; ResetForNewDay(); todayLabel.Text="TODAY  "+DateTime.Now.ToString("dddd, MMM d"); ResetWeekPicker(); }
         AdvancedBlock before=ActiveBlock;
         if(state.AdvancedPlan && state.DailyShutdown && before!=null) { state.DailyShutdown=false; state.BreakOffscreen=false; day.ActiveBlock=""; day.BlockUsed=0; day.Exhausted=false; if(breakScreen!=null)breakScreen.Hide(); Save(); }
         ApplyElapsed(elapsed,sessionLocked);
@@ -307,6 +307,12 @@ public class ScreenTime : Form {
         UpdateCleanup();
         TrackForeground(elapsed);
         if(++ticks%15==0)Save(); RefreshView(); if(!sessionLocked)PromptForWeek();
+    }
+    void ResetForNewDay() {
+        state.DailyShutdown=false; state.BreakWaiting=false; state.BreakOffscreen=false; state.BreakUntil=DateTime.MinValue;
+        cleanupActive=false; cleanupClosesBlock=false; if(cleanupTimer!=null)cleanupTimer.Stop();
+        if(toast!=null && !toast.IsDisposed)toast.Close(); if(breakScreen!=null && !breakScreen.IsDisposed)breakScreen.Hide();
+        last=watch.Elapsed.TotalSeconds; Save();
     }
     string ForegroundActivity() {
         IntPtr hwnd=GetForegroundWindow(); if(hwnd==IntPtr.Zero)return "Locked or unavailable";
