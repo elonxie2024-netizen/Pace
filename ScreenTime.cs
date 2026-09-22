@@ -209,7 +209,7 @@ public class ScreenTime : Form {
         AddLabel(alerts,"Windows volume and mute still apply. The corner bar stays visible when you close this window.",18,168,790,50,10);
         cornerBar=new CornerBar(); cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartDailyShutdown(); };
         tray=new NotifyIcon { Icon=SystemIcons.Application,Text="Screen Time",Visible=true };
-        ContextMenuStrip menu=new ContextMenuStrip(); menu.Items.Add("Open Screen Time",null,delegate { Show(); WindowState=FormWindowState.Normal; Activate(); }); menu.Items.Add("Exit (stop tracking)",null,delegate { exiting=true; Close(); }); tray.ContextMenuStrip=menu;
+        ContextMenuStrip menu=new ContextMenuStrip(); menu.Items.Add("Open Pace",null,delegate { cornerBar.RestoreBar(); Show(); WindowState=FormWindowState.Normal; Activate(); cornerBar.SetDashboardOpen(true); }); menu.Items.Add("Show corner bar",null,delegate { cornerBar.RestoreBar(); }); menu.Items.Add("Exit (stop tracking)",null,delegate { exiting=true; Close(); }); tray.ContextMenuStrip=menu;
         tray.DoubleClick+=delegate { Show(); WindowState=FormWindowState.Normal; Activate(); };
         FormClosing+=delegate(object s,FormClosingEventArgs e) { if(!exiting && e.CloseReason==CloseReason.UserClosing) { e.Cancel=true; Hide(); } else { Save(); tray.Dispose(); } };
         weekPicker.SelectedIndexChanged+=delegate { selectedWeek=Settings.Monday(DateTime.Now).AddDays(7*Math.Max(0,weekPicker.SelectedIndex)); LoadWeekEditor(); };
@@ -460,7 +460,7 @@ public class ScreenTime : Form {
         cornerBar.UpdateStatus(HasPlan,Budget,used,next,Breaking||state.BreakWaiting,closingSoon);
         cornerBar.PlaceInCorner(Screen.PrimaryScreen.WorkingArea);
         cornerBar.SetDashboardOpen(Visible);
-        if(cornerStarted && !cornerBar.Visible)cornerBar.Show();
+        if(cornerStarted && !cornerBar.Visible && !cornerBar.IsMinimized)cornerBar.Show();
         PositionReminder();
     }
     void PositionReminder() {

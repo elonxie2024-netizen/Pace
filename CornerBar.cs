@@ -2,12 +2,16 @@ using System;
 using System.Drawing;
 using System.Windows.Forms;
 using System.Drawing.Drawing2D;
+using System.Runtime.InteropServices;
 
 // A separate, unowned window stays visible when the dashboard is hidden/minimized.
 public sealed class CornerBar : Form {
+    public bool IsMinimized { get; private set; }
+    bool userPositioned;
     readonly Label allotted, used, next, nextTitle, heading;
     readonly Button addTime, takeBreak;
     readonly Button endDay;
+    readonly Button minimize;
     readonly ProgressBar progress;
     public event EventHandler OpenDashboard;
     public event EventHandler AddTimeClicked;
@@ -21,6 +25,7 @@ public sealed class CornerBar : Form {
         Font=new Font("Segoe UI",10); Cursor=Cursors.Hand;
         heading=LabelAt("PACE  /  Click to open",16,9,195,18,9);
         endDay=ActionButton("End day",220,7,58,22); endDay.Click+=delegate { if(EndDayClicked!=null)EndDayClicked(this,EventArgs.Empty); };
+        minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { IsMinimized=true; Hide(); };
         LabelAt("ALLOTTED",16,34,75,18,8);
         LabelAt("USED",156,34,130,18,8);
         nextTitle=LabelAt("NEXT BREAK",296,34,70,18,8);
@@ -32,12 +37,16 @@ public sealed class CornerBar : Form {
         progress=new ProgressBar { Location=new Point(16,94),Size=new Size(406,5),Maximum=1000 };
         Controls.Add(progress);
         foreach(Control control in Controls)control.Click+=Open;
-        addTime.Click-=Open; takeBreak.Click-=Open; endDay.Click-=Open;
+        addTime.Click-=Open; takeBreak.Click-=Open; endDay.Click-=Open; minimize.Click-=Open;
         Click+=Open;
+        MouseDown+=DragFromEmptySpace;
         FormClosing+=delegate(object s,FormClosingEventArgs e) { if(e.CloseReason==CloseReason.UserClosing)e.Cancel=true; };
         Shown+=delegate { ApplyRoundedRegion(); };
         Resize+=delegate { ApplyRoundedRegion(); };
     }
+    [DllImport("user32.dll")] static extern bool ReleaseCapture();
+    [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd,int msg,int wParam,int lParam);
+    void DragFromEmptySpace(object sender,MouseEventArgs e) { if(e.Button!=MouseButtons.Left)return; userPositioned=true; ReleaseCapture(); SendMessage(Handle,0xA1,2,0); }
     Label LabelAt(string text,int x,int y,int w,int h,float size) {
         Label label=new Label { Text=text,Location=new Point(x,y),Size=new Size(w,h),ForeColor=Color.FromArgb(240,246,230),Font=new Font("Segoe UI",size),AutoEllipsis=true };
         Controls.Add(label); return label;
@@ -62,6 +71,7 @@ public sealed class CornerBar : Form {
         progress.Value=!hasPlan?0:budgetSeconds<=0?1000:(int)Math.Max(0,Math.Min(1000,usedSeconds/budgetSeconds*1000));
         AccessibleDescription="Allotted: "+allotted.Text+". Used: "+used.Text+". "+nextTitle.Text+": "+next.Text;
     }
-    public void PlaceInCorner(Rectangle area) { Location=new Point(Math.Max(area.Left,area.Right-Width-16),Math.Max(area.Top,area.Bottom-Height-16)); }
+    public void PlaceInCorner(Rectangle area) { if(!userPositioned)Location=new Point(Math.Max(area.Left,area.Right-Width-16),Math.Max(area.Top,area.Bottom-Height-16)); }
+    public void RestoreBar() { IsMinimized=false; Show(); BringToFront(); }
     public void SetDashboardOpen(bool open) { heading.Text=open?"PACE  /  Click to close":"PACE  /  Click to open"; }
 }
