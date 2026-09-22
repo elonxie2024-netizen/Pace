@@ -160,7 +160,7 @@ public class ScreenTime : Form {
         if(dataFolder!=null)folder=dataFolder;
         Text="Pace"; ClientSize=new Size(1120,805); MinimumSize=new Size(1140,845);
         BackColor=cream; ForeColor=ink; Font=new Font("Segoe UI",10); StartPosition=FormStartPosition.CenterScreen;
-        string art=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","pace-garden.png"); if(File.Exists(art)) { BackgroundImage=Image.FromFile(art); BackgroundImageLayout=ImageLayout.Stretch; }
+        string art=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","pace-garden.png"); if(File.Exists(art)) { BackgroundImage=Image.FromFile(art); BackgroundImageLayout=ImageLayout.Zoom; }
         LoadState(); Today(); EnsureCurrentWeekPlan();
         Label brand=AddLabel(this,"PACE",135,30,850,24,10); brand.ForeColor=green; brand.BackColor=Color.Transparent; brand.Font=new Font("Segoe UI Semibold",10);
         Label hero=AddLabel(this,"Make room for life off screen.",135,67,850,52,27); hero.ForeColor=ink; hero.BackColor=Color.Transparent; hero.Font=new Font("Segoe UI Semibold",27);
