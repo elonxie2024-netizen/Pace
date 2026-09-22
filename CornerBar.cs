@@ -12,6 +12,7 @@ public sealed class CornerBar : Form {
     readonly Button addTime, takeBreak;
     readonly Button endDay;
     readonly Button minimize;
+    readonly Button resetPosition;
     readonly ProgressBar progress;
     public event EventHandler OpenDashboard;
     public event EventHandler AddTimeClicked;
@@ -26,6 +27,7 @@ public sealed class CornerBar : Form {
         heading=LabelAt("PACE  /  Click to open",16,9,195,18,9);
         endDay=ActionButton("End day",220,7,58,22); endDay.Click+=delegate { if(EndDayClicked!=null)EndDayClicked(this,EventArgs.Empty); };
         minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { IsMinimized=true; Hide(); };
+        resetPosition=ActionButton("⌂",378,7,20,20); resetPosition.Font=new Font("Segoe UI Symbol",10); resetPosition.Click+=delegate { ResetPosition(); };
         LabelAt("ALLOTTED",16,34,75,18,8);
         LabelAt("USED",156,34,130,18,8);
         nextTitle=LabelAt("NEXT BREAK",296,34,70,18,8);
@@ -37,7 +39,7 @@ public sealed class CornerBar : Form {
         progress=new ProgressBar { Location=new Point(16,94),Size=new Size(406,5),Maximum=1000 };
         Controls.Add(progress);
         foreach(Control control in Controls)control.Click+=Open;
-        addTime.Click-=Open; takeBreak.Click-=Open; endDay.Click-=Open; minimize.Click-=Open;
+        addTime.Click-=Open; takeBreak.Click-=Open; endDay.Click-=Open; minimize.Click-=Open; resetPosition.Click-=Open;
         Click+=Open;
         MouseDown+=DragFromEmptySpace;
         FormClosing+=delegate(object s,FormClosingEventArgs e) { if(e.CloseReason==CloseReason.UserClosing)e.Cancel=true; };
@@ -73,5 +75,6 @@ public sealed class CornerBar : Form {
     }
     public void PlaceInCorner(Rectangle area) { if(!userPositioned)Location=new Point(Math.Max(area.Left,area.Right-Width-16),Math.Max(area.Top,area.Bottom-Height-16)); }
     public void RestoreBar() { IsMinimized=false; Show(); BringToFront(); }
+    public void ResetPosition() { userPositioned=false; PlaceInCorner(Screen.FromControl(this).WorkingArea); }
     public void SetDashboardOpen(bool open) { heading.Text=open?"PACE  /  Click to close":"PACE  /  Click to open"; }
 }
