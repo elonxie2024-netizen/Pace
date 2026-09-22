@@ -16,9 +16,9 @@ public sealed class CornerBar : Form {
         Text="Screen Time status"; AccessibleName=Text;
         AutoScaleMode=AutoScaleMode.Dpi; ClientSize=new Size(438,112);
         FormBorderStyle=FormBorderStyle.None; StartPosition=FormStartPosition.Manual;
-        ShowInTaskbar=false; TopMost=true; BackColor=Color.FromArgb(27,57,49);
+        ShowInTaskbar=false; TopMost=true; BackColor=Color.FromArgb(35,67,58);
         Font=new Font("Segoe UI",10); Cursor=Cursors.Hand;
-        heading=LabelAt("SCREEN TIME  /  Click to open",16,9,406,18,9);
+        heading=LabelAt("PACE  /  Click to open",16,9,195,18,9);
         endDay=ActionButton("End day",220,7,58,22); endDay.Click+=delegate { if(EndDayClicked!=null)EndDayClicked(this,EventArgs.Empty); };
         LabelAt("ALLOTTED",16,34,75,18,8);
         LabelAt("USED",156,34,130,18,8);
@@ -39,7 +39,7 @@ public sealed class CornerBar : Form {
         Label label=new Label { Text=text,Location=new Point(x,y),Size=new Size(w,h),ForeColor=Color.FromArgb(240,246,230),Font=new Font("Segoe UI",size),AutoEllipsis=true };
         Controls.Add(label); return label;
     }
-    Button ActionButton(string text,int x,int y,int w,int h) { Button button=new Button { Text=text,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(38,125,103),ForeColor=Color.White,Font=new Font("Segoe UI",8),Cursor=Cursors.Hand,TabStop=false }; button.FlatAppearance.BorderSize=0; Controls.Add(button); return button; }
+    Button ActionButton(string text,int x,int y,int w,int h) { Button button=new Button { Text=text,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(76,139,113),ForeColor=Color.White,Font=new Font("Segoe UI Semibold",8),Cursor=Cursors.Hand,TabStop=false }; button.FlatAppearance.BorderSize=0; button.FlatAppearance.MouseOverBackColor=Color.FromArgb(93,157,130); Controls.Add(button); return button; }
     void Open(object sender,EventArgs e) { if(OpenDashboard!=null)OpenDashboard(this,EventArgs.Empty); }
     protected override bool ShowWithoutActivation { get { return true; } }
     protected override CreateParams CreateParams { get { CreateParams p=base.CreateParams; p.ExStyle|=0x08000000|0x00000080; return p; } }
@@ -55,5 +55,5 @@ public sealed class CornerBar : Form {
         AccessibleDescription="Allotted: "+allotted.Text+". Used: "+used.Text+". "+nextTitle.Text+": "+next.Text;
     }
     public void PlaceInCorner(Rectangle area) { Location=new Point(Math.Max(area.Left,area.Right-Width-16),Math.Max(area.Top,area.Bottom-Height-16)); }
-    public void SetDashboardOpen(bool open) { heading.Text=open?"SCREEN TIME  /  Click to close":"SCREEN TIME  /  Click to open"; }
+    public void SetDashboardOpen(bool open) { heading.Text=open?"PACE  /  Click to close":"PACE  /  Click to open"; }
 }

@@ -109,6 +109,7 @@ public class ScreenTime : Form {
     Button rest, extra;
     ComboBox weekPicker;
     Label weekHint, todayLabel;
+    Label advancedHint;
     TabControl tabs;
     DateTime selectedWeek;
     string promptedWeek="";
@@ -143,7 +144,8 @@ public class ScreenTime : Form {
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
-    Color ink = Color.FromArgb(30,52,49), green = Color.FromArgb(32,112,91);
+    Color ink = Color.FromArgb(38,58,53), green = Color.FromArgb(61,128,105);
+    Color cream = Color.FromArgb(247,244,235), sage = Color.FromArgb(224,235,225);
     bool HasPlan { get { return state.GetWeek(DateTime.Now)!=null; } }
     AdvancedBlock ActiveBlock { get { if(!state.AdvancedPlan)return null; string key=Settings.Monday(DateTime.Now).ToString("yyyy-MM-dd"); int dow=(int)DateTime.Now.DayOfWeek; TimeSpan now=DateTime.Now.TimeOfDay; return state.Blocks.Find(b=>b.WeekStart==key && b.Day==dow && TimeSpan.Parse(b.Start)<=now && now<TimeSpan.Parse(b.End)); } }
     int Budget { get { WeeklyPlan week=state.GetWeek(DateTime.Now); AdvancedBlock block=ActiveBlock; if(state.AdvancedPlan)return block==null?0:(int)(TimeSpan.Parse(block.End)-TimeSpan.Parse(block.Start)).TotalSeconds+day.Extra*60; return (week==null?0:week.Minutes[((int)DateTime.Now.DayOfWeek+6)%7]*60)+day.Extra*60; } }
@@ -151,13 +153,13 @@ public class ScreenTime : Form {
     public ScreenTime() : this(null) { }
     public ScreenTime(string dataFolder) {
         if(dataFolder!=null)folder=dataFolder;
-        Text="Screen Time  A little more balance"; ClientSize=new Size(920,755); MinimumSize=new Size(940,795);
-        BackColor=Color.FromArgb(238,243,236); ForeColor=ink; Font=new Font("Segoe UI",10); StartPosition=FormStartPosition.CenterScreen;
+        Text="Pace"; ClientSize=new Size(920,755); MinimumSize=new Size(940,795);
+        BackColor=cream; ForeColor=ink; Font=new Font("Segoe UI",10); StartPosition=FormStartPosition.CenterScreen;
         LoadState(); Today(); EnsureCurrentWeekPlan();
-        AddLabel(this,"SCREEN TIME  /  YOUR PACE",30,22,800,24,10);
-        Label hero=AddLabel(this,"Make room for life off screen.",30,55,850,52,27); hero.ForeColor=green;
-        AddLabel(this,"A plan you choose. Gentle reminders. Always built on trust.",32,113,840,30,11);
-        Panel card=new Panel { Location=new Point(30,157),Size=new Size(850,220),BackColor=Color.White }; Controls.Add(card);
+        Label brand=AddLabel(this,"PACE",30,22,800,24,10); brand.ForeColor=green; brand.Font=new Font("Segoe UI Semibold",10);
+        Label hero=AddLabel(this,"Make room for life off screen.",30,55,850,52,27); hero.ForeColor=ink; hero.Font=new Font("Segoe UI Semibold",27);
+        Label subtitle=AddLabel(this,"A plan you choose. Gentle reminders. Always built on trust.",32,113,840,30,11); subtitle.ForeColor=Color.FromArgb(91,108,100);
+        Panel card=new Panel { Location=new Point(30,157),Size=new Size(850,220),BackColor=sage,Padding=new Padding(2) }; Controls.Add(card);
         todayLabel=AddLabel(card,"TODAY    "+DateTime.Now.ToString("dddd, MMM d"),22,15,760,25,10);
         remaining=AddLabel(card,"",22,46,780,52,30);
         detail=AddLabel(card,"",24,104,780,26,11);
@@ -165,39 +167,38 @@ public class ScreenTime : Form {
         rest=ButtonAt(card,"Take a break",24,171,155,delegate { StartBreak(); });
         extra=ButtonAt(card,"+ Add time",192,171,150,delegate { AddTime(); });
         ButtonAt(card,"End screen time",360,171,150,delegate { StartDailyShutdown(); });
-        AddLabel(card,"Tracking is automatic while this app runs.",360,177,455,28,10);
-        status=AddLabel(this,"",32,389,850,28,11);
-        tabs=new TabControl { Location=new Point(30,435),Size=new Size(850,285) }; Controls.Add(tabs);
-        TabPage weekly=new TabPage("Weekly plan") { BackColor=Color.White }; tabs.TabPages.Add(weekly);
+        Label tracking=AddLabel(card,"Tracking is automatic while Pace runs.",535,177,285,28,10); tracking.ForeColor=Color.FromArgb(91,108,100);
+        status=AddLabel(this,"",32,389,850,28,11); status.ForeColor=Color.FromArgb(76,100,91);
+        tabs=new TabControl { Location=new Point(30,435),Size=new Size(850,285),Padding=new Point(18,7) }; Controls.Add(tabs);
+        TabPage weekly=new TabPage("Weekly plan") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(weekly);
         string[] names={"Mon","Tue","Wed","Thu","Fri","Sat","Sun"};
         weekPicker=new ComboBox { Location=new Point(18,10),Size=new Size(550,28),DropDownStyle=ComboBoxStyle.DropDownList }; weekly.Controls.Add(weekPicker);
         AddLabel(weekly,"Plan type",590,10,70,25,10); planMode=new ComboBox { Location=new Point(660,8),Size=new Size(148,28),DropDownStyle=ComboBoxStyle.DropDownList }; planMode.Items.AddRange(new object[]{"Simple limits","Advanced blocks"}); planMode.SelectedIndex=0; weekly.Controls.Add(planMode);
-        for(int i=0;i<7;i++) { int x=18+i*116; AddLabel(weekly,names[i],x,49,105,24,11); planHours[i]=new NumericUpDown { Location=new Point(x,77),Size=new Size(48,28),Minimum=0,Maximum=24 }; planMinutes[i]=new NumericUpDown { Location=new Point(x+51,77),Size=new Size(48,28),Minimum=0,Maximum=59,Increment=5 }; weekly.Controls.Add(planHours[i]); weekly.Controls.Add(planMinutes[i]); }
+        for(int i=0;i<7;i++) { int x=18+i*112; AddLabel(weekly,names[i],x,49,99,24,11); planHours[i]=new NumericUpDown { Location=new Point(x,77),Size=new Size(45,28),Minimum=0,Maximum=24 }; planMinutes[i]=new NumericUpDown { Location=new Point(x+48,77),Size=new Size(45,28),Minimum=0,Maximum=59,Increment=5 }; weekly.Controls.Add(planHours[i]); weekly.Controls.Add(planMinutes[i]); }
         weekHint=AddLabel(weekly,"",18,112,800,25,10);
         blockEditor=new TextBox { Location=new Point(18,112),Size=new Size(630,55),Multiline=true,ScrollBars=ScrollBars.Vertical,Visible=false }; weekly.Controls.Add(blockEditor);
-        AddLabel(weekly,"Advanced format: Day | Start | End | Activity   (example: Mon | 09:00 | 10:30 | School)",18,169,630,20,9);
-        planMode.SelectedIndexChanged+=delegate { bool advanced=planMode.SelectedIndex==1; blockEditor.Visible=advanced; weekHint.Visible=!advanced; for(int i=0;i<7;i++) { planHours[i].Visible=!advanced; planMinutes[i].Visible=!advanced; } };
+        advancedHint=AddLabel(weekly,"Advanced format: Day | Start | End | Activity   (example: Mon | 09:00 | 10:30 | School)",18,169,630,20,9); advancedHint.Visible=false;
+        planMode.SelectedIndexChanged+=delegate { bool advanced=planMode.SelectedIndex==1; blockEditor.Visible=advanced; advancedHint.Visible=advanced; weekHint.Visible=!advanced; for(int i=0;i<7;i++) { planHours[i].Visible=!advanced; planMinutes[i].Visible=!advanced; } };
         AddLabel(weekly,"Remind every",18,198,110,25,10);
         interval=new ComboBox { Location=new Point(129,194),Size=new Size(70,28),DropDownStyle=ComboBoxStyle.DropDownList }; interval.Items.AddRange(new object[]{15,20,30}); interval.SelectedItem=state.Interval; weekly.Controls.Add(interval);
         AddLabel(weekly,"min        Break",207,198,120,25,10);
         breakMinutes=new NumericUpDown { Location=new Point(332,194),Size=new Size(65,28),Minimum=1,Maximum=60,Value=state.BreakMinutes }; weekly.Controls.Add(breakMinutes);
         AddLabel(weekly,"min",406,198,45,25,10);
         ButtonAt(weekly,"Save this week",660,190,148,36,delegate { int[] values=new int[7]; for(int i=0;i<7;i++)values[i]=(int)planHours[i].Value*60+(int)planMinutes[i].Value; state.SetWeek(selectedWeek,values); state.AdvancedPlan=planMode.SelectedIndex==1; if(state.AdvancedPlan)SaveBlocks(); state.PlanChanges.Add(new PlanChange { WeekStart=Settings.Monday(selectedWeek).ToString("yyyy-MM-dd"), ChangedAt=DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Summary=state.AdvancedPlan?"Advanced blocks saved":"Plan saved: "+FormatPlan(values) }); state.Interval=(int)interval.SelectedItem; state.BreakMinutes=(int)breakMinutes.Value; if(selectedWeek==Settings.Monday(DateTime.Now)) { day.Warned=false; day.Exhausted=false; } Save(); LoadWeekEditor(); RefreshView(); });
-        ButtonAt(weekly,"Copy previous week",475,240,180,32,delegate { WeeklyPlan previous=state.GetWeek(selectedWeek.AddDays(-7)); if(previous==null) { MessageBox.Show("There is no saved plan for the previous week yet.","Copy plan"); return; } for(int i=0;i<7;i++) { planHours[i].Value=previous.Minutes[i]/60; planMinutes[i].Value=previous.Minutes[i]%60; } weekHint.Text="Copied the previous week's plan. Save this week when it looks right."; });
-        TabPage log=new TabPage("Time & reasons") { BackColor=Color.White }; tabs.TabPages.Add(log);
+        ButtonAt(weekly,"Copy previous week",475,229,180,28,delegate { WeeklyPlan previous=state.GetWeek(selectedWeek.AddDays(-7)); if(previous==null) { MessageBox.Show("There is no saved plan for the previous week yet.","Copy plan"); return; } for(int i=0;i<7;i++) { planHours[i].Value=previous.Minutes[i]/60; planMinutes[i].Value=previous.Minutes[i]%60; } weekHint.Text="Copied the previous week's plan. Save this week when it looks right."; });
+        TabPage log=new TabPage("Time & reasons") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(log);
         history=new ListBox { Dock=DockStyle.Fill,BorderStyle=BorderStyle.None,HorizontalScrollbar=true }; log.Controls.Add(history);
-        TabPage activity=new TabPage("Where time went") { BackColor=Color.White }; tabs.TabPages.Add(activity);
+        TabPage activity=new TabPage("Where time went") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(activity);
         AddLabel(activity,"Your screen time, grouped by app or visible browser tab.",18,16,790,28,13);
         AddLabel(activity,"Everything stays local. Browser entries use the visible tab title; exact URLs require a browser extension.",18,48,790,42,10);
         activityList=new ListBox { Location=new Point(18,96),Size=new Size(790,150),BorderStyle=BorderStyle.None,HorizontalScrollbar=true }; activity.Controls.Add(activityList);
-        TabPage alerts=new TabPage("Reminders & sound") { BackColor=Color.White }; tabs.TabPages.Add(alerts);
+        TabPage alerts=new TabPage("Reminders & sound") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(alerts);
         AddLabel(alerts,"A clearer reminder, even when you are busy.",18,18,790,35,16);
         AddLabel(alerts,"Three distinct chimes. Adjust their volume here, then try a reminder.",18,62,790,30,11);
         AddLabel(alerts,"Alert volume",18,112,125,28,11);
         alertVolume=new NumericUpDown { Location=new Point(150,108),Size=new Size(75,28),Minimum=0,Maximum=100,Value=state.AlertVolume }; alerts.Controls.Add(alertVolume);
         AddLabel(alerts,"%",233,112,30,28,11);
         alertVolume.ValueChanged+=delegate { state.AlertVolume=(int)alertVolume.Value; Save(); };
-        ButtonAt(alerts,"Test reminder",290,106,175,36,delegate { Notify("A moment to check in", "Take a few minutes to wrap up. Your time and next reminder stay visible in the bar below."); });
         AddLabel(alerts,"Windows volume and mute still apply. The corner bar stays visible when you close this window.",18,168,790,50,10);
         cornerBar=new CornerBar(); cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartDailyShutdown(); };
         tray=new NotifyIcon { Icon=SystemIcons.Application,Text="Screen Time",Visible=true };
@@ -254,7 +255,7 @@ public class ScreenTime : Form {
         base.Dispose(disposing);
     }
     Button ButtonAt(Control p,string t,int x,int y,int w,EventHandler a) { return ButtonAt(p,t,x,y,w,34,a); }
-    Button ButtonAt(Control p,string t,int x,int y,int w,int h,EventHandler a) { Button b=new Button { Text=t,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=green,ForeColor=Color.White,Cursor=Cursors.Hand }; b.FlatAppearance.BorderSize=0; b.Click+=a; p.Controls.Add(b); return b; }
+    Button ButtonAt(Control p,string t,int x,int y,int w,int h,EventHandler a) { Button b=new Button { Text=t,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=green,ForeColor=Color.White,Cursor=Cursors.Hand,Font=new Font("Segoe UI Semibold",9) }; b.FlatAppearance.BorderSize=0; b.FlatAppearance.MouseOverBackColor=Color.FromArgb(76,145,121); b.FlatAppearance.MouseDownBackColor=Color.FromArgb(46,105,86); b.Click+=a; p.Controls.Add(b); return b; }
     void LoadState() {
         state=new Settings();
         if(!File.Exists(StatePath))return;
