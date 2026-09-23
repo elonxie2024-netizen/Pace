@@ -34,6 +34,36 @@ try {
     Assert ($state.Weeks.Count -eq 2 -and $state.GetWeek($thisWeek).Minutes[0] -eq 90) 'Editing a Sunday must update the existing dated week'
     Assert ($state.GetWeek($nextWeek).Minutes[1] -eq 70 -and $day.Used -eq 123) 'Editing must preserve other weeks and accrued usage'
 
+    $blockA = New-Object AdvancedBlock
+    $blockA.WeekStart = $thisWeek.ToString('yyyy-MM-dd'); $blockA.Day = 1; $blockA.Start = '09:00'; $blockA.End = '10:00'; $blockA.Activity = 'School'
+    $blockB = New-Object AdvancedBlock
+    $blockB.WeekStart = $blockA.WeekStart; $blockB.Day = 1; $blockB.Start = '09:45'; $blockB.End = '11:00'; $blockB.Activity = 'Creative work'
+    $blockC = New-Object AdvancedBlock
+    $blockC.WeekStart = $blockA.WeekStart; $blockC.Day = 1; $blockC.Start = '10:00'; $blockC.End = '11:00'; $blockC.Activity = 'Reading'
+    Assert ([AdvancedBlockRules]::Overlaps($blockA,$blockB)) 'Advanced blocks on the same day must detect overlap'
+    Assert (-not [AdvancedBlockRules]::Overlaps($blockA,$blockC)) 'Adjacent advanced blocks must be allowed'
+    Assert ([AdvancedBlockRules]::Time(1440) -eq '24:00') 'The timeline must preserve a block ending at midnight'
+    $preview = New-Object AdvancedSchedulePreview
+    $preview.Size = New-Object Drawing.Size 620,132
+    $preview.SetBlocks([AdvancedBlock[]]@($blockA,$blockC))
+    $previewBitmap = New-Object Drawing.Bitmap 620,132
+    $preview.DrawToBitmap($previewBitmap,(New-Object Drawing.Rectangle 0,0,620,132))
+    $previewBitmap.Dispose(); $preview.Dispose()
+    $dragBlock = [AdvancedBlockRules]::Copy($blockA,$blockA.WeekStart)
+    $dragBlocks = New-Object 'System.Collections.Generic.List[AdvancedBlock]'
+    $dragBlocks.Add($dragBlock)
+    $timeline = New-Object AdvancedTimeline -ArgumentList (, $dragBlocks)
+    $timeline.Size = New-Object Drawing.Size 980,365
+    $mouseFlags = [Reflection.BindingFlags]'NonPublic,Instance'
+    $down = New-Object Windows.Forms.MouseEventArgs ([Windows.Forms.MouseButtons]::Left),1,411,38,0
+    $move = New-Object Windows.Forms.MouseEventArgs ([Windows.Forms.MouseButtons]::Left),1,474,38,0
+    $up = New-Object Windows.Forms.MouseEventArgs ([Windows.Forms.MouseButtons]::Left),1,474,38,0
+    $timeline.GetType().GetMethod('OnMouseDown',$mouseFlags).Invoke($timeline,@($down.PSObject.BaseObject))
+    $timeline.GetType().GetMethod('OnMouseMove',$mouseFlags).Invoke($timeline,@($move.PSObject.BaseObject))
+    $timeline.GetType().GetMethod('OnMouseUp',$mouseFlags).Invoke($timeline,@($up.PSObject.BaseObject))
+    Assert ($dragBlock.Start -ne '09:00' -and ([AdvancedBlockRules]::Minutes($dragBlock.Start) % 15) -eq 0) 'Dragging must move blocks in 15-minute steps'
+    $timeline.Dispose()
+
     $corner = Field 'cornerBar'
     Assert ([CornerBar]::Countdown(-4) -eq '00:00') 'Countdown must clamp negative values'
     Assert ([CornerBar]::Countdown(60.1) -eq '01:01' -and [CornerBar]::Countdown(60) -eq '01:00') 'Countdown must round partial seconds upward'
@@ -108,10 +138,14 @@ try {
     $day.Extra = 15
     $day.Reasons.Add('Testing saved reason')
     $state.AlertVolume = 73
+    $currentPlan.Advanced = $true
+    $state.Blocks.Add($blockA)
     Call 'Save'
     Call 'LoadState'
     $loaded = Field 'state'
     Assert ($loaded.Weeks.Count -eq 2 -and $loaded.GetWeek($nextWeek).Minutes[1] -eq 70) 'Dated plans must survive reload'
+    Assert ($loaded.GetWeek($thisWeek).Advanced -and $loaded.Blocks.Count -eq 1) 'Advanced plan mode and visual blocks must survive reload'
+    Assert (-not $loaded.GetWeek($nextWeek).Advanced) 'Advanced plan mode must stay attached to its own week'
     Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason') 'Usage, extra time, and reasons must survive reload'
     Assert ($loaded.AlertVolume -eq 73) 'Reminder volume must survive reload'
     $loaded.DailyShutdown = $true
@@ -120,7 +154,7 @@ try {
     $loaded.BreakUntil = [datetime]::UtcNow.AddMinutes(5)
     $app.GetType().GetMethod('ResetForNewDay',$flags).Invoke($app,@())
     Assert (-not $loaded.DailyShutdown -and -not $loaded.BreakWaiting -and -not $loaded.BreakOffscreen -and $loaded.BreakUntil -eq [datetime]::MinValue) 'A new day must automatically clear the previous shutdown and break states'
-    Write-Host 'PASS: weekly plans, automatic accounting, breaks, warnings, persistent corner, reminder placement, countdowns, and persistence including volume.'
+    Write-Host 'PASS: weekly plans, visual advanced blocks, dragging, conflict rules, automatic accounting, breaks, warnings, reminders, and persistence.'
 } finally {
     if ($app) { $app.Dispose() }
     # Delete only the known test files and empty directory; never touch real application data.

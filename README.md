@@ -8,11 +8,12 @@ Pace is a small Windows desktop app for keeping a personal, trust-based screen-t
 - Includes regular reminders of when to take a break
 - Almost every time setting configurable
 - Daily plans created weekly
+- Visual advanced plans with draggable blocks for allowed activities and times
 - Daily lockout reminders
-- 
+
 ## Installing Pace
 
-Download `Pace-Setup.exe` from the latest GitHub release and open it. The installer works for the current Windows account and does not require administrator access. It creates a Start Menu shortcut and offers optional desktop and launch-at-sign-in choices.
+Download `Pace-Setup-<version>.exe` from the latest GitHub release and open it. The installer works for the current Windows account and does not require administrator access. It creates a Start Menu shortcut and offers optional desktop and launch-at-sign-in choices.
 
 After installation, right-click the Pace notification-area icon to open Pace, restore the corner bar, change whether Pace starts when you sign in, check for updates, or exit.
 
