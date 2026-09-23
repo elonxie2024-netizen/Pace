@@ -1,8 +1,11 @@
 ScreenTime.exe
+Pace.exe
 *.pdb
 *.tmp
 *.backup-*
 .vs/
 bin/
 obj/
+dist/
+.tools/
 state.xml

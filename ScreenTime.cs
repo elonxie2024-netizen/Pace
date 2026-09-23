@@ -10,6 +10,15 @@ using System.Text;
 using Microsoft.Win32;
 using System.Runtime.InteropServices;
 using System.Drawing.Drawing2D;
+using System.Net;
+using System.Text.RegularExpressions;
+
+[assembly: System.Reflection.AssemblyTitle("Pace")]
+[assembly: System.Reflection.AssemblyProduct("Pace")]
+[assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
+[assembly: System.Reflection.AssemblyCompany("Pace")]
+[assembly: System.Reflection.AssemblyVersion("0.1.0.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.1.0.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -102,6 +111,9 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
+    const string PaceVersion="0.1.0";
+    const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
+    const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
     DayRecord day;
     readonly string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TrustScreenTime");
@@ -124,6 +136,8 @@ public class ScreenTime : Form {
     TextBox blockEditor;
     ListBox history;
     NotifyIcon tray;
+    ToolStripMenuItem startupItem;
+    string updateUrl=ReleasesUrl;
     System.Windows.Forms.Timer timer;
     Stopwatch watch = Stopwatch.StartNew();
     double last;
@@ -160,6 +174,7 @@ public class ScreenTime : Form {
         if(dataFolder!=null)folder=dataFolder;
         Text="Pace"; ClientSize=new Size(1120,805); MinimumSize=new Size(1140,845);
         BackColor=cream; ForeColor=ink; Font=new Font("Segoe UI",10); StartPosition=FormStartPosition.CenterScreen;
+        try { Icon appIcon=Icon.ExtractAssociatedIcon(Application.ExecutablePath); if(appIcon!=null)Icon=(Icon)appIcon.Clone(); } catch { }
         string art=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","pace-garden-fitted.png"); if(File.Exists(art)) { BackgroundImage=Image.FromFile(art); BackgroundImageLayout=ImageLayout.Zoom; }
         LoadState(); Today(); EnsureCurrentWeekPlan();
         Label brand=AddLabel(this,"PACE",135,30,850,24,10); brand.ForeColor=green; brand.BackColor=Color.Transparent; brand.Font=new Font("Segoe UI Semibold",10);
@@ -207,9 +222,17 @@ public class ScreenTime : Form {
         AddLabel(alerts,"%",233,112,30,28,11);
         alertVolume.ValueChanged+=delegate { state.AlertVolume=(int)alertVolume.Value; Save(); };
         AddLabel(alerts,"Windows volume and mute still apply. The corner bar stays visible when you close this window.",18,168,790,50,10);
-        cornerBar=new CornerBar(); cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartDailyShutdown(); };
-        tray=new NotifyIcon { Icon=SystemIcons.Application,Text="Screen Time",Visible=true };
-        ContextMenuStrip menu=new ContextMenuStrip(); menu.Items.Add("Open Pace",null,delegate { cornerBar.RestoreBar(); Show(); WindowState=FormWindowState.Normal; Activate(); cornerBar.SetDashboardOpen(true); }); menu.Items.Add("Show corner bar",null,delegate { cornerBar.RestoreBar(); }); menu.Items.Add("Exit (stop tracking)",null,delegate { exiting=true; Close(); }); tray.ContextMenuStrip=menu;
+        cornerBar=new CornerBar(); cornerBar.Icon=Icon; cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartDailyShutdown(); };
+        tray=new NotifyIcon { Icon=Icon??SystemIcons.Application,Text="Pace",Visible=true };
+        ContextMenuStrip menu=new ContextMenuStrip();
+        menu.Items.Add("Open Pace",null,delegate { cornerBar.RestoreBar(); Show(); WindowState=FormWindowState.Normal; Activate(); cornerBar.SetDashboardOpen(true); });
+        menu.Items.Add("Show corner bar",null,delegate { cornerBar.RestoreBar(); });
+        menu.Items.Add(new ToolStripSeparator());
+        startupItem=new ToolStripMenuItem("Start Pace when I sign in") { CheckOnClick=true,Checked=StartsWithWindows() }; startupItem.CheckedChanged+=StartupItemChanged; menu.Items.Add(startupItem);
+        menu.Items.Add("Check for updates",null,delegate { CheckForUpdates(true); });
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add("Exit (stop tracking)",null,delegate { exiting=true; Close(); }); tray.ContextMenuStrip=menu;
+        tray.BalloonTipClicked+=delegate { OpenUpdatePage(); };
         tray.DoubleClick+=delegate { Show(); WindowState=FormWindowState.Normal; Activate(); };
         FormClosing+=delegate(object s,FormClosingEventArgs e) { if(!exiting && e.CloseReason==CloseReason.UserClosing) { e.Cancel=true; Hide(); } else { Save(); tray.Dispose(); } };
         weekPicker.SelectedIndexChanged+=delegate { selectedWeek=Settings.Monday(DateTime.Now).AddDays(7*Math.Max(0,weekPicker.SelectedIndex)); LoadWeekEditor(); };
@@ -218,8 +241,38 @@ public class ScreenTime : Form {
         SystemEvents.PowerModeChanged+=PowerChanged;
         StyleInputs(this);
         timer=new System.Windows.Forms.Timer { Interval=1000 }; timer.Tick+=delegate { Tick(); }; timer.Start(); RefreshView();
-        Shown+=delegate { cornerStarted=true; Hide(); UpdateCorner(); if(state.AdvancedPlan && ActiveBlock==null)StartDailyShutdown(); else if(state.DailyShutdown) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowDailyShutdown(); } else if(state.BreakOffscreen) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowOffscreen(); } else if(state.BreakWaiting) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowFinished(); } else if(Breaking) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowBreak(state.BreakUntil); } PromptForWeek(); };
+        Shown+=delegate { cornerStarted=true; Hide(); UpdateCorner(); if(state.AdvancedPlan && ActiveBlock==null)StartDailyShutdown(); else if(state.DailyShutdown) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowDailyShutdown(); } else if(state.BreakOffscreen) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowOffscreen(); } else if(state.BreakWaiting) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowFinished(); } else if(Breaking) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowBreak(state.BreakUntil); } PromptForWeek(); System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer { Interval=8000 }; updateTimer.Tick+=delegate { updateTimer.Stop(); updateTimer.Dispose(); CheckForUpdates(false); }; updateTimer.Start(); };
     }
+
+    string StartupCommand { get { return "\""+Application.ExecutablePath+"\""; } }
+    bool StartsWithWindows() {
+        try { using(RegistryKey key=Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")) { string value=key==null?null:key.GetValue("Pace") as string; return string.Equals(value,StartupCommand,StringComparison.OrdinalIgnoreCase); } } catch { return false; }
+    }
+    void SetStartWithWindows(bool enabled) {
+        try { using(RegistryKey key=Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")) { if(enabled)key.SetValue("Pace",StartupCommand,RegistryValueKind.String); else key.DeleteValue("Pace",false); } }
+        catch { if(startupItem!=null) { startupItem.CheckedChanged-=StartupItemChanged; startupItem.Checked=!enabled; startupItem.CheckedChanged+=StartupItemChanged; } MessageBox.Show("Pace could not change the sign-in setting for this Windows account.","Pace"); }
+    }
+    void StartupItemChanged(object sender,EventArgs e) { SetStartWithWindows(startupItem.Checked); }
+    void CheckForUpdates(bool showCurrent) {
+        try {
+            WebClient client=new WebClient(); client.Headers[HttpRequestHeader.UserAgent]="Pace/"+PaceVersion;
+            client.DownloadStringCompleted+=delegate(object sender,DownloadStringCompletedEventArgs e) {
+                try {
+                    if(e.Error!=null || e.Cancelled) { if(showCurrent)MessageBox.Show("Pace could not reach GitHub to check for updates.","Pace updates"); return; }
+                    Match tag=Regex.Match(e.Result,"\\\"tag_name\\\"\\s*:\\s*\\\"v?([^\\\"]+)\\\"");
+                    Match page=Regex.Match(e.Result,"\\\"html_url\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+                    Version latest,current; if(!tag.Success || !Version.TryParse(tag.Groups[1].Value,out latest) || !Version.TryParse(PaceVersion,out current)) { if(showCurrent)MessageBox.Show("No published Pace update is available yet.","Pace updates"); return; }
+                    if(page.Success)updateUrl=page.Groups[1].Value.Replace("\\/","/");
+                    if(latest>current) {
+                        if(showCurrent) { if(MessageBox.Show("Pace "+latest+" is available. Open the download page?","Pace update",MessageBoxButtons.YesNo,MessageBoxIcon.Information)==DialogResult.Yes)OpenUpdatePage(); }
+                        else { tray.BalloonTipTitle="Pace update available"; tray.BalloonTipText="Version "+latest+" is ready. Click to download it."; tray.ShowBalloonTip(10000); }
+                    } else if(showCurrent)MessageBox.Show("You already have the newest version of Pace.","Pace updates");
+                } finally { client.Dispose(); }
+            };
+            client.DownloadStringAsync(new Uri(ReleasesApi));
+        } catch { if(showCurrent)MessageBox.Show("Pace could not start the update check.","Pace updates"); }
+    }
+    void OpenUpdatePage() { try { Process.Start(updateUrl); } catch { MessageBox.Show("Open "+ReleasesUrl+" in your browser to download the update.","Pace updates"); } }
     Label AddLabel(Control parent,string text,int x,int y,int w,int h,float size) { Label l=new Label { Text=text,Location=new Point(x,y),Size=new Size(w,h),Font=new Font("Segoe UI",size),ForeColor=ink }; parent.Controls.Add(l); return l; }
     static void Round(Control control,int radius) { Action apply=delegate { if(control.Width<2 || control.Height<2)return; GraphicsPath path=new GraphicsPath(); int d=radius*2; path.AddArc(0,0,d,d,180,90); path.AddArc(control.Width-d-1,0,d,d,270,90); path.AddArc(control.Width-d-1,control.Height-d-1,d,d,0,90); path.AddArc(0,control.Height-d-1,d,d,90,90); path.CloseFigure(); Region old=control.Region; control.Region=new Region(path); if(old!=null)old.Dispose(); path.Dispose(); }; control.Resize+=delegate { apply(); }; if(control.IsHandleCreated)apply(); else control.HandleCreated+=delegate { apply(); }; }
     void StyleInputs(Control root) { foreach(Control control in root.Controls) { if(control is ComboBox || control is NumericUpDown || control is TextBox) { control.BackColor=Color.FromArgb(250,249,244); Round(control,7); } if(control.HasChildren)StyleInputs(control); } }

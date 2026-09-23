@@ -10,7 +10,13 @@ Pace is a small Windows desktop app for keeping a personal, trust-based screen-t
 - Daily plans created weekly
 - Daily lockout reminders
 - 
-## Running the app
+## Installing Pace
+
+Download `Pace-Setup.exe` from the latest GitHub release and open it. The installer works for the current Windows account and does not require administrator access. It creates a Start Menu shortcut and offers optional desktop and launch-at-sign-in choices.
+
+After installation, right-click the Pace notification-area icon to open Pace, restore the corner bar, change whether Pace starts when you sign in, check for updates, or exit.
+
+## Running from source
 
 The repository contains the source in `ScreenTime.cs`, a PowerShell build script in `build.ps1`, and the resulting executable as `ScreenTime.exe`.
 
@@ -37,7 +43,17 @@ Run the app with:
 4. When a reminder appears, use it as a cue to finish a natural stopping point and take the suggested break.
 5. When the 10-minute warning appears, finish what you are doing before the daily plan runs out. If you still need time afterward, request a break, then add extra time with a reason after the countdown finishes. Press **Win+L** to lock Windows when stepping away; unlocked time keeps counting even during the break countdown.
 
-Closing the main window minimizes Screen Time to the notification area and keeps tracking. Use the notification-area menu to reopen the window or choose **Exit**. **Exit** stops tracking and closes the app.
+Closing the main window minimizes Pace to the notification area and keeps tracking. Use the notification-area menu to reopen the window or choose **Exit**. **Exit** stops tracking and closes the app.
+
+## Building the Windows installer
+
+Run:
+
+```powershell
+.\build-installer.ps1
+```
+
+The script builds and tests Pace, downloads the official signed Inno Setup compiler into the repository's ignored `.tools` folder when needed, and creates `dist\Pace-Setup-<version>.exe`. Pushing a matching version tag such as `v0.1.0` also builds the installer and publishes it as a GitHub release.
 
 ## Saved state
 
@@ -53,7 +69,7 @@ The state is local to the Windows user account. It is not a cloud sync service a
 
 - Tracking only covers time while the app runs; it cannot recover usage from when it was closed.
 - Screen Time does not inspect which applications or websites are being used.
-- There is no automatic startup, background service, or tamper protection yet; launch `ScreenTime.exe` yourself to track computer use.
+- Pace must be running to track time. The installer and tray menu can configure it to launch automatically when you sign in.
 - The break countdown uses elapsed time and does not verify that you took a break. It remains on screen after reaching zero until Continue is clicked.
 - Corner reminders appear while the app runs; the reminder sound depends on Windows sound settings.
 - The bar is a topmost window on the primary monitor's current desktop. Exclusive fullscreen games, secure Windows screens, and other virtual desktops may hide it; it is not a game overlay. Borderless/windowed games allow ordinary desktop overlays.
