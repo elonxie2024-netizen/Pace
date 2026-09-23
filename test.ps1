@@ -33,6 +33,16 @@ try {
     $state.SetWeek($thisWeek.AddDays(6), [int[]]@(90,90,90,90,90,90,90))
     Assert ($state.Weeks.Count -eq 2 -and $state.GetWeek($thisWeek).Minutes[0] -eq 90) 'Editing a Sunday must update the existing dated week'
     Assert ($state.GetWeek($nextWeek).Minutes[1] -eq 70 -and $day.Used -eq 123) 'Editing must preserve other weeks and accrued usage'
+    $weekPicker = Field 'weekPicker'
+    Assert ($weekPicker.Items.Count -eq 6) 'Week picker must contain one current week and five future weeks without duplicates'
+    $weekPicker.SelectedIndex = 1
+    Assert ((Field 'selectedWeek') -eq $nextWeek) 'The Next week label must edit the actual next week'
+    $weekPicker.SelectedIndex = 0
+    $hours = Field 'planHours'; $minuteInputs = Field 'planMinutes'
+    $minuteInputs[0].Value = 30; $hours[0].Value = 24
+    Assert ($minuteInputs[0].Value -eq 0 -and -not $minuteInputs[0].Enabled) 'A 24-hour plan must not allow extra minutes beyond the day'
+    $hours[0].Value = 2
+    Assert $minuteInputs[0].Enabled 'Minutes must be enabled again below 24 hours'
 
     $blockA = New-Object AdvancedBlock
     $blockA.WeekStart = $thisWeek.ToString('yyyy-MM-dd'); $blockA.Day = 1; $blockA.Start = '09:00'; $blockA.End = '10:00'; $blockA.Activity = 'School'
@@ -42,7 +52,11 @@ try {
     $blockC.WeekStart = $blockA.WeekStart; $blockC.Day = 1; $blockC.Start = '10:00'; $blockC.End = '11:00'; $blockC.Activity = 'Reading'
     Assert ([AdvancedBlockRules]::Overlaps($blockA,$blockB)) 'Advanced blocks on the same day must detect overlap'
     Assert (-not [AdvancedBlockRules]::Overlaps($blockA,$blockC)) 'Adjacent advanced blocks must be allowed'
+    $differentWeekBlock = [AdvancedBlockRules]::Copy($blockA,$nextWeek.ToString('yyyy-MM-dd'))
+    Assert (-not [AdvancedBlockRules]::Overlaps($blockA,$differentWeekBlock)) 'Blocks in different weeks must not conflict with each other'
     Assert ([AdvancedBlockRules]::Time(1440) -eq '24:00') 'The timeline must preserve a block ending at midnight'
+    Assert ([AdvancedBlockRules]::Minutes('24:00') -eq 1440) 'Midnight block endings must convert to 1440 minutes'
+    Assert ([AdvancedBlockRules]::IsValid((New-Object AdvancedBlock -Property @{ WeekStart=$thisWeek.ToString('yyyy-MM-dd'); Day=1; Start='23:00'; End='24:00'; Activity='Late work' }))) 'A block ending at midnight must be valid'
     $preview = New-Object AdvancedSchedulePreview
     $preview.Size = New-Object Drawing.Size 620,132
     $preview.SetBlocks([AdvancedBlock[]]@($blockA,$blockC))
@@ -87,6 +101,7 @@ try {
     $toast = Field 'toast'
     Assert ($toast.Bottom -lt $corner.Top) 'Reminder must sit above the persistent corner bar'
     Assert ($toast.GetType().GetProperty('ShowWithoutActivation', $flags).GetValue($toast, $null)) 'Reminder must show without stealing focus'
+    Assert (($toast.Controls | Where-Object { $_ -is [Windows.Forms.Button] } | Select-Object -First 1).Text -eq 'Open weekly plan') 'The weekly-plan reminder must open the planner instead of starting an unrelated break'
     $toast.Close()
 
     $day.Used = 0
@@ -109,6 +124,9 @@ try {
     $day.Used = $budget - 601
     Elapsed 2 $false
     Assert $day.Warned 'Crossing ten minutes remaining must trigger warning'
+    Assert ((Field 'cleanupActive') -and (Field 'cleanupClosesPlan')) 'Closing warnings must keep a live countdown to shutdown'
+    Call 'CancelCleanup'
+    Assert (Field 'cleanupActive') 'A closing countdown must remain visible instead of behaving like a cancelable periodic break'
     $day.Used = $budget - 1
     $day.BreakEarned = $true
     Elapsed 2 $false
@@ -119,6 +137,13 @@ try {
     Assert ($day.BreakEarned -and $state.BreakUntil -eq [datetime]::MinValue) 'Expired break must earn eligibility and clear the timer'
     Assert ($day.Used -eq $before) 'Tracking must remain stopped until Continue'
     Assert ($day.SinceReminder -eq 0) 'Finishing break must reset the next reminder interval'
+    $breakScreen = Field 'breakScreen'
+    $breakFlags = [Reflection.BindingFlags]'NonPublic,Instance'
+    Assert (-not $breakScreen.GetType().GetField('cancel',$breakFlags).GetValue($breakScreen).Visible -and -not $breakScreen.GetType().GetField('addMore',$breakFlags).GetValue($breakScreen).Visible) 'A completed break must show only the Continue action'
+    $app.GetType().GetMethod('OffscreenActivity',$flags).Invoke($app,@())
+    $breakScreen.GetType().GetMethod('UpdateTimer',$breakFlags).Invoke($breakScreen,@())
+    Assert ($breakScreen.GetType().GetField('timerLabel',$breakFlags).GetValue($breakScreen).Text -eq '') 'Offscreen activity must stay timeless instead of restoring 00:00'
+    Assert (-not $breakScreen.GetType().GetField('cancel',$breakFlags).GetValue($breakScreen).Visible) 'Offscreen activity must not duplicate Continue with Cancel'
     $app.GetType().GetMethod('ContinueBreak',$flags).Invoke($app,@())
     $state.DailyShutdown = $false
 
@@ -126,8 +151,40 @@ try {
     $day.SinceReminder = $state.Interval * 60 - 1
     Elapsed 2 $false
     Assert ($day.SinceReminder -eq 0) 'Regular reminder must restart its countdown'
+    Assert ((Field 'cleanupActive') -and -not (Field 'cleanupClosesPlan')) 'Regular reminders must enter the periodic wrap-up phase'
+    Call 'CancelCleanup'
 
     $currentPlan = $state.GetWeek($thisWeek)
+    $currentPlan.Advanced = $true
+    $activeBlock = New-Object AdvancedBlock
+    $activeBlock.WeekStart = $thisWeek.ToString('yyyy-MM-dd'); $activeBlock.Day = [int][datetime]::Now.DayOfWeek; $activeBlock.Start = '00:00'; $activeBlock.End = '24:00'; $activeBlock.Activity = 'All-day test block'
+    $state.Blocks.Add($activeBlock)
+    $day.ActiveBlock = ''; $day.BlockUsed = 0; $day.Used = 0; $day.Extra = 0; $day.ExtraUsed = 0; $day.Exhausted = $false
+    Elapsed 60 $false
+    Assert ($day.BlockUsed -eq 60 -and $day.Used -eq 60 -and $app.GetType().GetProperty('CurrentUsed',$flags).GetValue($app,$null) -eq 60) 'Advanced blocks must count both current-block usage and total reporting usage'
+    Call 'StartManualShutdown'; Call 'Tick'
+    Assert ($state.DailyShutdown -and $state.ManualShutdown) 'A manual End screen time choice must not be undone by an active advanced block'
+    $state.DailyShutdown = $false; $state.ManualShutdown = $false; $state.BreakOffscreen = $false; $day.Exhausted = $false
+    if ($breakScreen) { $breakScreen.Hide() }
+    $state.Blocks.Clear()
+    Call 'Tick'
+    Assert ($state.DailyShutdown -and -not $state.ManualShutdown) 'Advanced plans must close screen time automatically whenever no block or extra time is active'
+    $state.DailyShutdown = $false; $state.BreakOffscreen = $false; $day.Exhausted = $false
+    if ($breakScreen) { $breakScreen.Hide() }
+    $day.ActiveBlock = 'extra'
+    $day.BlockUsed = 0
+    $day.Extra = 2
+    $day.ExtraUsed = 0
+    $day.Used = 0
+    $day.Exhausted = $false
+    $day.Warned = $false
+    Elapsed 60 $false
+    Assert ($day.ExtraUsed -eq 60 -and $day.Used -eq 60 -and -not $state.DailyShutdown) 'Advanced extra time outside a block must count down and remain usable'
+    Elapsed 61 $false
+    Assert $state.DailyShutdown 'Advanced extra time must close screen time when the added allowance is consumed'
+    $state.DailyShutdown = $false; $state.BreakOffscreen = $false; $day.Exhausted = $false; $day.Extra = 0; $day.ExtraUsed = 0; $currentPlan.Advanced = $false
+    if ($breakScreen) { $breakScreen.Hide() }
+
     [void]$state.Weeks.Remove($currentPlan)
     $day.Exhausted = $false
     $day.Warned = $false
@@ -140,11 +197,14 @@ try {
     $state.AlertVolume = 73
     $currentPlan.Advanced = $true
     $state.Blocks.Add($blockA)
+    $invalidBlock = New-Object AdvancedBlock
+    $invalidBlock.WeekStart = $blockA.WeekStart; $invalidBlock.Day = 1; $invalidBlock.Start = 'bad'; $invalidBlock.End = '10:00'; $invalidBlock.Activity = ''
+    $state.Blocks.Add($invalidBlock)
     Call 'Save'
     Call 'LoadState'
     $loaded = Field 'state'
     Assert ($loaded.Weeks.Count -eq 2 -and $loaded.GetWeek($nextWeek).Minutes[1] -eq 70) 'Dated plans must survive reload'
-    Assert ($loaded.GetWeek($thisWeek).Advanced -and $loaded.Blocks.Count -eq 1) 'Advanced plan mode and visual blocks must survive reload'
+    Assert ($loaded.GetWeek($thisWeek).Advanced -and $loaded.Blocks.Count -eq 1) 'Advanced plan mode must survive reload while invalid blocks are discarded'
     Assert (-not $loaded.GetWeek($nextWeek).Advanced) 'Advanced plan mode must stay attached to its own week'
     Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason') 'Usage, extra time, and reasons must survive reload'
     Assert ($loaded.AlertVolume -eq 73) 'Reminder volume must survive reload'
@@ -153,7 +213,12 @@ try {
     $loaded.BreakOffscreen = $true
     $loaded.BreakUntil = [datetime]::UtcNow.AddMinutes(5)
     $app.GetType().GetMethod('ResetForNewDay',$flags).Invoke($app,@())
-    Assert (-not $loaded.DailyShutdown -and -not $loaded.BreakWaiting -and -not $loaded.BreakOffscreen -and $loaded.BreakUntil -eq [datetime]::MinValue) 'A new day must automatically clear the previous shutdown and break states'
+    Assert (-not $loaded.DailyShutdown -and -not $loaded.ManualShutdown -and -not $loaded.BreakWaiting -and -not $loaded.BreakOffscreen -and $loaded.BreakUntil -eq [datetime]::MinValue -and $loaded.SessionDate -eq [datetime]::Now.ToString('yyyy-MM-dd')) 'A new day must automatically clear the previous shutdown and break states'
+    $loaded.SessionDate = [datetime]::Now.AddDays(-1).ToString('yyyy-MM-dd'); $loaded.DailyShutdown = $true; $loaded.BreakOffscreen = $true
+    Call 'Save'
+    $app.Dispose(); $app = New-Object ScreenTime -ArgumentList $tempFolder; (Field 'timer').Stop()
+    $restarted = Field 'state'
+    Assert (-not $restarted.DailyShutdown -and -not $restarted.BreakOffscreen -and $restarted.SessionDate -eq [datetime]::Now.ToString('yyyy-MM-dd')) 'Restarting on a new day must not restore yesterday''s full-screen shutdown'
     Write-Host 'PASS: weekly plans, visual advanced blocks, dragging, conflict rules, automatic accounting, breaks, warnings, reminders, and persistence.'
 } finally {
     if ($app) { $app.Dispose() }

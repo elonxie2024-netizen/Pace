@@ -4,6 +4,7 @@ $version = (Get-Content -LiteralPath "$PSScriptRoot\version.txt" -Raw).Trim()
 if ($version -notmatch '^\d+\.\d+\.\d+$') { throw "version.txt must contain a version such as 0.1.0" }
 
 & "$PSScriptRoot\build.ps1"
+& "$PSScriptRoot\test.ps1"
 
 $compilerCandidates = @(
     "$env:ProgramFiles\Inno Setup 7\ISCC.exe",

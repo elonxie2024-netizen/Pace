@@ -9,8 +9,11 @@ public static class AdvancedBlockRules {
         return new AdvancedBlock { WeekStart=weekStart,Day=source.Day,Start=source.Start,End=source.End,Activity=source.Activity };
     }
     public static int Minutes(string value) {
-        TimeSpan parsed;
-        return TimeSpan.TryParse(value,out parsed)?(int)parsed.TotalMinutes:0;
+        if(string.IsNullOrWhiteSpace(value))return -1;
+        string[] parts=value.Split(':'); int hours,minutes;
+        if(parts.Length!=2 || !int.TryParse(parts[0],out hours) || !int.TryParse(parts[1],out minutes))return -1;
+        if(hours<0 || hours>24 || minutes<0 || minutes>59 || (hours==24 && minutes!=0))return -1;
+        return hours*60+minutes;
     }
     public static string Time(int minutes) {
         minutes=Math.Max(0,Math.Min(1440,minutes));
@@ -18,12 +21,17 @@ public static class AdvancedBlockRules {
         return TimeSpan.FromMinutes(minutes).ToString(@"hh\:mm");
     }
     public static bool Overlaps(AdvancedBlock first,AdvancedBlock second) {
-        if(first==null || second==null || first.Day!=second.Day)return false;
+        if(first==null || second==null || first.WeekStart!=second.WeekStart || first.Day!=second.Day)return false;
         return Minutes(first.Start)<Minutes(second.End) && Minutes(second.Start)<Minutes(first.End);
     }
     public static bool HasConflict(IList<AdvancedBlock> blocks,AdvancedBlock candidate,AdvancedBlock ignore) {
         foreach(AdvancedBlock block in blocks)if(!object.ReferenceEquals(block,ignore) && Overlaps(block,candidate))return true;
         return false;
+    }
+    public static bool IsValid(AdvancedBlock block) {
+        if(block==null || block.Day<0 || block.Day>6 || string.IsNullOrWhiteSpace(block.WeekStart) || string.IsNullOrWhiteSpace(block.Activity))return false;
+        int start=Minutes(block.Start),end=Minutes(block.End);
+        return start>=0 && end>start && end<=1440;
     }
     public static string DayName(int day) { return new[]{"Sun","Mon","Tue","Wed","Thu","Fri","Sat"}[Math.Max(0,Math.Min(6,day))]; }
     public static int DayToRow(int day) { return day==0?6:day-1; }
