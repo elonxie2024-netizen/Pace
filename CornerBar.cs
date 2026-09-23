@@ -9,7 +9,8 @@ public sealed class CornerBar : Form {
     public bool IsMinimized { get; private set; }
     bool userPositioned;
     bool changingWindowMode;
-    readonly Label allotted, used, next, nextTitle, heading;
+    bool showingReason;
+    readonly Label allotted, used, next, nextTitle, heading, allottedTitle, usedTitle, reason;
     readonly Button addTime, takeBreak;
     readonly Button endDay;
     readonly Button minimize;
@@ -29,8 +30,9 @@ public sealed class CornerBar : Form {
         endDay=ActionButton("End day",220,7,58,22); endDay.Click+=delegate { if(EndDayClicked!=null)EndDayClicked(this,EventArgs.Empty); };
         minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { changingWindowMode=true; IsMinimized=true; ShowInTaskbar=true; RecreateHandle(); WindowState=FormWindowState.Minimized; changingWindowMode=false; };
         resetPosition=ActionButton("⌂",378,7,20,20); resetPosition.Font=new Font("Segoe UI Symbol",10); resetPosition.Click+=delegate { ResetPosition(); };
-        LabelAt("ALLOTTED",16,34,75,18,8);
-        LabelAt("USED",156,34,130,18,8);
+        reason=LabelAt("",16,34,406,50,13.5f); reason.Visible=false; reason.TextAlign=ContentAlignment.MiddleCenter; reason.BackColor=Color.FromArgb(48,85,72);
+        allottedTitle=LabelAt("ALLOTTED",16,34,75,18,8);
+        usedTitle=LabelAt("USED",156,34,130,18,8);
         nextTitle=LabelAt("NEXT BREAK",296,34,70,18,8);
         allotted=LabelAt("No plan",16,54,130,31,16);
         addTime=ActionButton("+ Time",94,30,52,22); addTime.Click+=delegate { if(AddTimeClicked!=null)AddTimeClicked(this,EventArgs.Empty); };
@@ -44,7 +46,7 @@ public sealed class CornerBar : Form {
         Click+=Open;
         MouseDown+=DragFromEmptySpace;
         FormClosing+=delegate(object s,FormClosingEventArgs e) { if(e.CloseReason==CloseReason.UserClosing)e.Cancel=true; };
-        SizeChanged+=delegate { if(!changingWindowMode && IsMinimized && WindowState==FormWindowState.Normal) { changingWindowMode=true; IsMinimized=false; ShowInTaskbar=false; RecreateHandle(); changingWindowMode=false; BringToFront(); } };
+        SizeChanged+=delegate { ApplyRoundedRegion(); if(!changingWindowMode && IsMinimized && WindowState==FormWindowState.Normal) { changingWindowMode=true; IsMinimized=false; ShowInTaskbar=false; RecreateHandle(); changingWindowMode=false; BringToFront(); } };
         ApplyRoundedRegion();
     }
     [DllImport("user32.dll")] static extern bool ReleaseCapture();
@@ -72,8 +74,19 @@ public sealed class CornerBar : Form {
         nextTitle.Text=onBreak?"BREAK LEFT":closing?"CLOSES IN":"NEXT BREAK";
         next.Text=Countdown(nextSeconds);
         progress.Value=!hasPlan?0:budgetSeconds<=0?1000:(int)Math.Max(0,Math.Min(1000,usedSeconds/budgetSeconds*1000));
-        AccessibleDescription="Allotted: "+allotted.Text+". Used: "+used.Text+". "+nextTitle.Text+": "+next.Text;
+        UpdateAccessibleDescription();
     }
+    public void SetReason(string value) {
+        string clean=(value??"").Trim(); bool show=clean.Length>0; if(showingReason==show && reason.Text==clean)return;
+        int oldBottom=Bottom,offset=show?62:0; showingReason=show; reason.Text=clean; reason.Visible=show;
+        allottedTitle.Top=34+offset; usedTitle.Top=34+offset; nextTitle.Top=34+offset;
+        addTime.Top=30+offset; takeBreak.Top=30+offset;
+        allotted.Top=54+offset; used.Top=54+offset; next.Top=54+offset; progress.Top=94+offset;
+        ClientSize=new Size(438,112+offset); if(userPositioned) { Rectangle area=Screen.FromControl(this).WorkingArea; Top=Math.Max(area.Top,Math.Min(oldBottom-Height,area.Bottom-Height)); }
+        ApplyRoundedRegion();
+        UpdateAccessibleDescription();
+    }
+    void UpdateAccessibleDescription() { AccessibleDescription=(showingReason?"Reason: "+reason.Text+". ":"")+"Allotted: "+allotted.Text+". Used: "+used.Text+". "+nextTitle.Text+": "+next.Text; }
     public void PlaceInCorner(Rectangle area) { if(!userPositioned)Location=new Point(Math.Max(area.Left,area.Right-Width-16),Math.Max(area.Top,area.Bottom-Height-16)); }
     public void RestoreBar() { changingWindowMode=true; IsMinimized=false; WindowState=FormWindowState.Normal; ShowInTaskbar=false; RecreateHandle(); changingWindowMode=false; Show(); BringToFront(); }
     public void ResetPosition() { userPositioned=false; PlaceInCorner(Screen.FromControl(this).WorkingArea); }

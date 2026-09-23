@@ -17,8 +17,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.1.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.1.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.2.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.2.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -49,6 +49,7 @@ public class DayRecord {
     public string ActiveBlock="";
     public double BlockUsed;
     public double ExtraUsed;
+    public string ActiveReason="";
 }
 public class ActivityRecord {
     public string Name = "";
@@ -117,7 +118,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.1";
+    const string PaceVersion="0.2.2";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -370,7 +371,7 @@ public class ScreenTime : Form {
         if(!File.Exists(StatePath)) { state.AdvancedModesMigrated=true; return; }
         try { using(var f=File.OpenRead(StatePath))state=(Settings)new XmlSerializer(typeof(Settings)).Deserialize(f);
             if(state.Weeks==null || state.Weeks.Exists(w=>w==null || w.Minutes==null || w.Minutes.Length!=7 || Array.Exists(w.Minutes,v=>v<0 || v>1440)) || (state.Interval!=15 && state.Interval!=20 && state.Interval!=30) || state.BreakMinutes<1 || state.BreakMinutes>60 || state.Days==null)throw new InvalidDataException();
-            foreach(DayRecord savedDay in state.Days) { if(savedDay==null)throw new InvalidDataException(); savedDay.Used=Math.Max(0,savedDay.Used); savedDay.Extra=Math.Max(0,savedDay.Extra); savedDay.ExtraUsed=Math.Max(0,Math.Min(savedDay.Extra*60,savedDay.ExtraUsed)); savedDay.BlockUsed=Math.Max(0,savedDay.BlockUsed); savedDay.SinceReminder=Math.Max(0,savedDay.SinceReminder); if(savedDay.Reasons==null)savedDay.Reasons=new List<string>(); if(savedDay.Activities==null)savedDay.Activities=new List<ActivityRecord>(); savedDay.Activities.RemoveAll(a=>a==null || string.IsNullOrWhiteSpace(a.Name) || a.Seconds<0); foreach(ActivityRecord savedActivity in savedDay.Activities)if(string.IsNullOrEmpty(savedActivity.Category))savedActivity.Category=ActivityCategoryForLoaded(savedActivity.Name); }
+            foreach(DayRecord savedDay in state.Days) { if(savedDay==null)throw new InvalidDataException(); savedDay.Used=Math.Max(0,savedDay.Used); savedDay.Extra=Math.Max(0,savedDay.Extra); savedDay.ExtraUsed=Math.Max(0,Math.Min(savedDay.Extra*60,savedDay.ExtraUsed)); savedDay.BlockUsed=Math.Max(0,savedDay.BlockUsed); savedDay.SinceReminder=Math.Max(0,savedDay.SinceReminder); if(savedDay.ActiveReason==null)savedDay.ActiveReason=""; if(savedDay.Reasons==null)savedDay.Reasons=new List<string>(); if(savedDay.Activities==null)savedDay.Activities=new List<ActivityRecord>(); savedDay.Activities.RemoveAll(a=>a==null || string.IsNullOrWhiteSpace(a.Name) || a.Seconds<0); foreach(ActivityRecord savedActivity in savedDay.Activities)if(string.IsNullOrEmpty(savedActivity.Category))savedActivity.Category=ActivityCategoryForLoaded(savedActivity.Name); }
             if(state.PlanChanges==null)state.PlanChanges=new List<PlanChange>();
             if(state.Blocks==null)state.Blocks=new List<AdvancedBlock>();
             List<AdvancedBlock> validBlocks=new List<AdvancedBlock>(); foreach(AdvancedBlock savedBlock in state.Blocks)if(AdvancedBlockRules.IsValid(savedBlock) && state.Weeks.Exists(w=>w.WeekStart==savedBlock.WeekStart) && !AdvancedBlockRules.HasConflict(validBlocks,savedBlock,null))validBlocks.Add(savedBlock); state.Blocks=validBlocks;
@@ -509,7 +510,8 @@ public class ScreenTime : Form {
         AddLabel(toast,"TIME TO WRAP UP",16,12,406,32,15);
         AddLabel(toast,"Finish what you're doing, then a break will begin automatically.",16,52,406,40,11);
         cleanupLabel=AddLabel(toast,"Break begins in: 01:00",16,92,406,25,13);
-        ButtonAt(toast,"Cancel break",122,126,194,delegate { CancelCleanup(); });
+        ButtonAt(toast,"Cancel break",24,126,188,delegate { CancelCleanup(); });
+        ButtonAt(toast,"Start break",226,126,188,delegate { StartBreak(); });
         StartCleanupTimer();
     }
     void BeginClosingCountdown() {
@@ -563,11 +565,12 @@ public class ScreenTime : Form {
     void BeginDailyShutdown(bool manual) {
         StopCleanup();
         state.ManualShutdown=manual;
+        day.ActiveReason="";
         day.Exhausted=true; state.DailyShutdown=true; state.BreakWaiting=false; state.BreakOffscreen=true; state.BreakUntil=DateTime.MinValue; Save();
         if(breakScreen==null || breakScreen.IsDisposed)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime);
         breakScreen.ShowDailyShutdown(DailyShutdownMessage()); RefreshView();
     }
-    void ResumeForActiveBlock() { state.DailyShutdown=false; state.BreakOffscreen=false; day.ActiveBlock=""; day.BlockUsed=0; day.Exhausted=false; if(breakScreen!=null)breakScreen.Hide(); Save(); }
+    void ResumeForActiveBlock() { state.DailyShutdown=false; state.BreakOffscreen=false; day.ActiveBlock=""; day.ActiveReason=""; day.BlockUsed=0; day.Exhausted=false; if(breakScreen!=null)breakScreen.Hide(); Save(); }
     string DailyShutdownMessage() { DateTime? next=UsingAdvancedPlan && !state.ManualShutdown?NextBlockStart:null; return next==null?"Your daily screen-time plan is complete. Add more time if you have a reason.":"This block is complete. Your next block starts "+next.Value.ToString("ddd h:mm tt")+"."; }
     void CancelBreak() { if(!Breaking && !state.BreakWaiting && !state.BreakOffscreen)return; state.BreakUntil=DateTime.MinValue; state.BreakWaiting=false; state.BreakOffscreen=false; if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
     void ContinueBreak() { if(!state.BreakWaiting && !state.BreakOffscreen)return; state.BreakWaiting=false; state.BreakOffscreen=false; if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
@@ -591,7 +594,8 @@ public class ScreenTime : Form {
                 if(added<=0) { MessageBox.Show(dialog,"Choose some extra time first."); return; }
                 if(string.IsNullOrWhiteSpace(reason.Text)) { MessageBox.Show(dialog,"Please write a reason first."); return; }
                 Today(); if(Breaking || (CurrentUsed>=Budget && !day.BreakEarned && !state.DailyShutdown)) { MessageBox.Show(dialog,"Your plan has ended. Take a break before adding time."); dialog.Close(); return; }
-                day.Extra+=added; day.Reasons.Add(DateTime.Now.ToString("HH:mm")+"  +"+FormatDuration(added*60)+"  "+reason.Text.Trim().Replace("\r"," ").Replace("\n"," "));
+                string cleanReason=reason.Text.Trim().Replace("\r"," ").Replace("\n"," ");
+                day.Extra+=added; day.Reasons.Add(DateTime.Now.ToString("HH:mm")+"  +"+FormatDuration(added*60)+"  "+cleanReason); if(restoreDailyShutdown)day.ActiveReason=cleanReason;
                 day.Warned=false; day.Exhausted=false; day.BreakEarned=false; if(UsingAdvancedPlan && ActiveBlock==null)day.ActiveBlock="extra";
                 state.DailyShutdown=false; state.ManualShutdown=false; state.BreakOffscreen=false; state.BreakWaiting=false; StopCleanup(); if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); dialog.DialogResult=DialogResult.OK;
             });
@@ -622,6 +626,7 @@ public class ScreenTime : Form {
         double next=Breaking?(state.BreakUntil-DateTime.UtcNow).TotalSeconds:(cleanupActive?CleanupSecondsLeft():(closingSoon?closing:periodic));
         if(cleanupActive)closingSoon=cleanupClosesPlan;
         cornerBar.UpdateStatus(HasPlan,Budget,used,next,Breaking||state.BreakWaiting||state.BreakOffscreen||state.DailyShutdown,closingSoon);
+        cornerBar.SetReason(day.ActiveReason);
         cornerBar.PlaceInCorner(Screen.PrimaryScreen.WorkingArea);
         cornerBar.SetDashboardOpen(Visible);
         if(cornerStarted && !cornerBar.Visible && !cornerBar.IsMinimized)cornerBar.Show();

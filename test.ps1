@@ -87,6 +87,14 @@ try {
     Assert ($corner.AccessibleDescription -like 'Allotted: No plan. Used: 2m.*') 'Unplanned corner must still show usage'
     $corner.UpdateStatus($true, 60, 120, 90, $true)
     Assert ($corner.AccessibleDescription -like '*BREAK LEFT: 01:30') 'Active break must change countdown label'
+    $normalCornerHeight = $corner.ClientSize.Height
+    $corner.SetReason('Finish the history outline')
+    $reasonLabel = $corner.GetType().GetField('reason', $flags).GetValue($corner)
+    $allottedTitle = $corner.GetType().GetField('allottedTitle', $flags).GetValue($corner)
+    Assert ($reasonLabel.Text -eq 'Finish the history outline' -and $corner.ClientSize.Height -gt $normalCornerHeight) 'An active extra-time reason must receive a large dedicated area on the corner bar'
+    Assert ($reasonLabel.Bottom -lt $allottedTitle.Top -and $corner.AccessibleDescription -like 'Reason: Finish the history outline.*') 'The reason must not overlap the existing corner-bar controls'
+    $corner.SetReason('')
+    Assert ($reasonLabel.Text -eq '' -and $corner.ClientSize.Height -eq $normalCornerHeight) 'The corner bar must return to its compact layout when no reason is active'
     $cornerProgress = $corner.GetType().GetField('progress', $flags).GetValue($corner)
     Assert ($cornerProgress.Value -eq 1000) 'Over-budget progress must clamp at maximum'
     Call 'RefreshView'
@@ -152,7 +160,17 @@ try {
     Elapsed 2 $false
     Assert ($day.SinceReminder -eq 0) 'Regular reminder must restart its countdown'
     Assert ((Field 'cleanupActive') -and -not (Field 'cleanupClosesPlan')) 'Regular reminders must enter the periodic wrap-up phase'
-    Call 'CancelCleanup'
+    $periodicToast = Field 'toast'
+    $periodicButtons = @($periodicToast.Controls | Where-Object { $_ -is [Windows.Forms.Button] })
+    Assert ($periodicButtons.Count -eq 2 -and $periodicButtons[0].Text -eq 'Cancel break' -and $periodicButtons[1].Text -eq 'Start break') 'Every periodic break reminder must offer Cancel break and Start break'
+    Assert (-not $periodicButtons[0].Bounds.IntersectsWith($periodicButtons[1].Bounds)) 'Periodic reminder actions must not overlap'
+    $periodicButtons[0].PerformClick()
+    Assert (-not (Field 'cleanupActive')) 'Cancel break must dismiss the periodic wrap-up without starting a break'
+    Call 'BeginPeriodicCleanup'
+    $startNow = @((Field 'toast').Controls | Where-Object { $_ -is [Windows.Forms.Button] -and $_.Text -eq 'Start break' })[0]
+    $startNow.PerformClick()
+    Assert ((Field 'state').BreakUntil -gt [datetime]::UtcNow -and -not (Field 'cleanupActive')) 'Start break must begin the full-screen break immediately'
+    Call 'CancelBreak'
 
     $currentPlan = $state.GetWeek($thisWeek)
     $currentPlan.Advanced = $true
@@ -193,6 +211,7 @@ try {
     Assert ($day.Used -eq $before + 5 -and -not $day.Exhausted -and -not $day.Warned) 'Missing plan must count usage without budget warnings'
     $state.Weeks.Add($currentPlan)
     $day.Extra = 15
+    $day.ActiveReason = 'Testing visible extra-time reason'
     $day.Reasons.Add('Testing saved reason')
     $state.AlertVolume = 73
     $currentPlan.Advanced = $true
@@ -206,7 +225,7 @@ try {
     Assert ($loaded.Weeks.Count -eq 2 -and $loaded.GetWeek($nextWeek).Minutes[1] -eq 70) 'Dated plans must survive reload'
     Assert ($loaded.GetWeek($thisWeek).Advanced -and $loaded.Blocks.Count -eq 1) 'Advanced plan mode must survive reload while invalid blocks are discarded'
     Assert (-not $loaded.GetWeek($nextWeek).Advanced) 'Advanced plan mode must stay attached to its own week'
-    Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason') 'Usage, extra time, and reasons must survive reload'
+    Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason' -and $loaded.Days[0].ActiveReason -eq 'Testing visible extra-time reason') 'Usage, extra time, and reasons must survive reload'
     Assert ($loaded.AlertVolume -eq 73) 'Reminder volume must survive reload'
     $loaded.DailyShutdown = $true
     $loaded.BreakWaiting = $true
