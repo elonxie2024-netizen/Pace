@@ -10,6 +10,7 @@ Pace is a small Windows desktop app for keeping a personal, trust-based screen-t
 - Supports dated weekly plans with configurable reminder and break timing
 - Includes visual advanced plans with draggable blocks for named activities and times
 - Lets advanced blocks name the apps or visible browser-tab words that fit, then gives a calm course-check warning and reports matched versus outside-block time
+- Keeps a local heartbeat and records starts, stops, locks, sleep, wake, and any interval when Pace was not tracking
 - Uses a full-screen end-of-day or between-block state while still allowing intentional extra time with a reason
 - Keeps the corner bar position, plans, usage, and reports across restarts
 
@@ -51,6 +52,8 @@ For an activity-aware advanced block, open **Edit blocks** and enter matching wo
 
 Closing the main window minimizes Pace to the notification area and keeps tracking. Use the notification-area menu to reopen the window or choose **Exit**. **Exit** stops tracking and closes the app.
 
+The **Tracking health** tab confirms that the heartbeat is current, checks whether launch at sign-in points to the running Pace installation, and lists recent tracking events. If Pace was closed or stopped unexpectedly, the next launch records the unknown interval in both **Tracking health** and **Time & reasons**. Time in a tracking gap is identified as unknown and is never silently added to screen usage.
+
 ## Building the Windows installer
 
 Run:
@@ -76,6 +79,7 @@ Pace also maintains `state.xml.backup` in the same folder. If the main state fil
 ## Current limitations
 
 - Tracking only covers time while the app runs; it cannot recover usage from when it was closed.
+- The heartbeat can identify when tracking was interrupted, but Pace cannot determine what happened on screen during that gap.
 - Activity reporting and advanced-block matching read the foreground application name and visible window or browser-tab title. Matching ignores capitalization and checks whether any planned word appears in that text. Pace cannot read exact browser URLs without a browser extension.
 - Pace must be running to track time. The installer and tray menu can configure it to launch automatically when you sign in.
 - The break countdown uses elapsed time and does not verify that you took a break. It remains on screen after reaching zero until Continue is clicked.

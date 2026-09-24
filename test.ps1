@@ -15,6 +15,7 @@ try {
     $state.AlertVolume = 0
     $day = Field 'day'
     Assert ($state.Days.Count -eq 1 -and $state.Weeks.Count -eq 0) 'Isolated constructor must begin with fresh state'
+    Assert ($state.TrackingSessionOpen -and [datetime]::Parse($state.LastHeartbeat) -le [datetime]::Now -and $state.TrackingEvents[-1].Kind -eq 'Started') 'Starting Pace must open a heartbeat-backed tracking session'
     Call 'Today'
     Assert ($state.Days.Count -eq 1) 'Today must not duplicate records'
 
@@ -43,6 +44,20 @@ try {
     Assert ($minuteInputs[0].Value -eq 0 -and -not $minuteInputs[0].Enabled) 'A 24-hour plan must not allow extra minutes beyond the day'
     $hours[0].Value = 2
     Assert $minuteInputs[0].Enabled 'Minutes must be enabled again below 24 hours'
+
+    $gapMethod = $app.GetType().GetMethod('RecordPreviousTrackingGap',$flags)
+    $gapNow = [datetime]::Now
+    $state.TrackingSessionOpen = $true; $state.LastHeartbeat = $gapNow.AddHours(-2).ToString('o')
+    $gapMethod.Invoke($app,@($gapNow,$gapNow.AddHours(-3)))
+    $state.TrackingSessionOpen = $false; $state.LastStoppedAt = $gapNow.AddHours(-1).ToString('o')
+    $gapMethod.Invoke($app,@($gapNow,$gapNow.AddHours(-3)))
+    Assert (($state.TrackingEvents | Where-Object { $_.Kind -eq 'Gap' -and $_.Detail -like '*unexpectedly*' }).Count -eq 1) 'An interrupted heartbeat must be identified as an unexpected tracking gap'
+    Assert (($state.TrackingEvents | Where-Object { $_.Kind -eq 'Gap' -and $_.Detail -like '*was closed*' }).Count -eq 1) 'A deliberate exit must be distinguished from an unexpected tracking gap'
+    $state.TrackingSessionOpen = $true; Call 'Heartbeat'
+    Call 'RefreshTrackingHealth'; Call 'RefreshHistory'
+    Assert (@((Field 'trackingEvents').Items | Where-Object { $_ -like '*NOT TRACKED*' }).Count -eq 2) 'Tracking health must list untracked intervals explicitly'
+    Assert (@((Field 'history').Items | Where-Object { $_ -like '*not tracked*' }).Count -ge 1) 'Daily history must disclose tracking gaps instead of presenting incomplete data as complete'
+    Assert ((Field 'trackingLaunchStatus').Text -like 'Launch at sign-in*') 'Tracking health must report whether launch at sign-in is working'
 
     $blockA = New-Object AdvancedBlock
     $blockA.WeekStart = $thisWeek.ToString('yyyy-MM-dd'); $blockA.Day = 1; $blockA.Start = '09:00'; $blockA.End = '10:00'; $blockA.Activity = 'School'; $blockA.AllowedApps = 'Word, Canvas, word'
@@ -97,9 +112,12 @@ try {
     Assert ([CornerBar]::Countdown(60.1) -eq '01:01' -and [CornerBar]::Countdown(60) -eq '01:00') 'Countdown must round partial seconds upward'
     Assert ([CornerBar]::Countdown(3661) -eq '1:01:01') 'Long countdowns must use hours instead of minute values above 59'
     $corner.UpdateStatus($true, 7200, 3660, 61, $false)
-    Assert ($corner.AccessibleDescription -eq 'Allotted: 2h. Used: 1h 1m. NEXT BREAK: 01:01') 'Corner must display allotment, usage, and next break'
+    Assert ($corner.AccessibleDescription -eq 'Tracking: active. Allotted: 2h. Used: 1h 1m. NEXT BREAK: 01:01') 'Corner must display tracking health, allotment, usage, and next break'
+    $corner.SetTrackingHealth($false)
+    Assert ($corner.AccessibleDescription -like 'Tracking: active, but data is not saving.*') 'The corner must expose a visible and accessible unsaved state'
+    $corner.SetTrackingHealth($true)
     $corner.UpdateStatus($false, 0, 120, 10, $false)
-    Assert ($corner.AccessibleDescription -like 'Allotted: No plan. Used: 2m.*') 'Unplanned corner must still show usage'
+    Assert ($corner.AccessibleDescription -like '*Allotted: No plan. Used: 2m.*') 'Unplanned corner must still show usage'
     $corner.UpdateStatus($true, 60, 120, 90, $true)
     Assert ($corner.AccessibleDescription -like '*BREAK LEFT: 01:30') 'Active break must change countdown label'
     $corner.UpdateStatus($true, 60, 120, 0, 'DAY COMPLETE')
@@ -109,17 +127,17 @@ try {
     $reasonLabel = $corner.GetType().GetField('reason', $flags).GetValue($corner)
     $allottedTitle = $corner.GetType().GetField('allottedTitle', $flags).GetValue($corner)
     Assert ($reasonLabel.Text -eq 'Finish the history outline' -and $corner.ClientSize.Height -gt $normalCornerHeight) 'An active extra-time reason must receive a large dedicated area on the corner bar'
-    Assert ($reasonLabel.Bottom -lt $allottedTitle.Top -and $corner.AccessibleDescription -like 'Reason: Finish the history outline.*') 'The reason must not overlap the existing corner-bar controls'
+    Assert ($reasonLabel.Bottom -lt $allottedTitle.Top -and $corner.AccessibleDescription -like '*Reason: Finish the history outline.*') 'The reason must not overlap the existing corner-bar controls'
     $corner.SetReason('')
     Assert ($reasonLabel.Text -eq '' -and $corner.ClientSize.Height -eq $normalCornerHeight) 'The corner bar must return to its compact layout when no reason is active'
     $corner.SetFocusMismatch('Homework','YouTube - Microsoft Edge')
-    Assert ($corner.AccessibleDescription -like 'Focus cue: PLANNED: Homework*YouTube*outside this block*') 'An activity mismatch must receive a clear accessible course-check message'
+    Assert ($corner.AccessibleDescription -like '*Focus cue: PLANNED: Homework*YouTube*outside this block*') 'An activity mismatch must receive a clear accessible course-check message'
     Assert ($reasonLabel.Bottom -lt $allottedTitle.Top) 'The activity mismatch must expand the corner bar without overlapping its controls'
     $corner.SetReason('')
     $cornerProgress = $corner.GetType().GetField('progress', $flags).GetValue($corner)
     Assert ($cornerProgress.Value -eq 1000) 'Over-budget progress must clamp at maximum'
     Call 'RefreshView'
-    Assert ($corner.AccessibleDescription -like 'Allotted: 1h 30m. Used: 2m.*') 'Dashboard refresh must update the corner from current state'
+    Assert ($corner.AccessibleDescription -like '*Allotted: 1h 30m. Used: 2m.*') 'Dashboard refresh must update the corner from current state'
     $app.Show()
     [System.Windows.Forms.Application]::DoEvents()
     $app.Hide()
@@ -210,7 +228,7 @@ try {
     $awareness.Invoke($app,@('YouTube - Microsoft Edge',[double]16))
     Assert ($day.BlockActivities.Count -eq 2 -and $day.BlockActivities[0].Matched -and -not $day.BlockActivities[1].Matched) 'Activity-aware blocks must record matched and outside-block time separately'
     Call 'RefreshView'
-    Assert ($corner.AccessibleDescription -like 'Focus cue:*All-day test block*YouTube*') 'A mismatch lasting beyond the grace period must appear on the persistent corner bar'
+    Assert ($corner.AccessibleDescription -like '*Focus cue:*All-day test block*YouTube*') 'A mismatch lasting beyond the grace period must appear on the persistent corner bar'
     $focusToast = Field 'focusToast'
     $focusButtons = @($focusToast.Controls | Where-Object { $_ -is [Windows.Forms.Button] })
     Assert ($focusButtons.Count -eq 1 -and $focusButtons[0].Text -eq 'Dismiss for 5 min') 'The mismatch reminder must have one clear action with a real snooze effect'
@@ -304,7 +322,8 @@ try {
     Assert (-not $restarted.DailyShutdown -and -not $restarted.BreakOffscreen -and $restarted.SessionDate -eq [datetime]::Now.ToString('yyyy-MM-dd')) 'Restarting on a new day must not restore yesterday''s full-screen shutdown'
     $restartedCorner = Field 'cornerBar'
     Assert ($restarted.CornerPositioned -and $restartedCorner.Left -eq $savedX -and $restartedCorner.Top -eq $savedY) 'A user-positioned corner bar must return to its saved location after restart'
-    Write-Host 'PASS: planning, activity-aware blocks, reporting, recovery, positioning, accounting, breaks, reminders, and persistence.'
+    Assert ($restarted.TrackingSessionOpen -and ($restarted.TrackingEvents | Where-Object { $_.Kind -eq 'Stopped' }).Count -ge 1) 'A clean exit and restart must preserve tracking continuity events and open a new session'
+    Write-Host 'PASS: planning, activity-aware blocks, tracking continuity, reporting, recovery, positioning, accounting, breaks, reminders, and persistence.'
 } finally {
     if ($app) { $app.Dispose() }
     # Delete only the known test files and empty directory; never touch real application data.

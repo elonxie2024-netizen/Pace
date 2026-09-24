@@ -17,8 +17,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.4.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.4.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.5.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.5.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -65,6 +65,12 @@ public class BlockActivityRecord {
     public string Activity="";
     public bool Matched;
     public double Seconds;
+}
+public class TrackingEventRecord {
+    public string Kind="";
+    public string Start="";
+    public string End="";
+    public string Detail="";
 }
 public sealed class BreakScreen : Form {
     readonly Label title, timerLabel, note;
@@ -122,6 +128,10 @@ public class Settings {
     public string SessionDate="";
     public bool CornerPositioned;
     public int CornerX,CornerY;
+    public bool TrackingSessionOpen;
+    public string LastHeartbeat="";
+    public string LastStoppedAt="";
+    public List<TrackingEventRecord> TrackingEvents = new List<TrackingEventRecord>();
     public List<DayRecord> Days = new List<DayRecord>();
     public static DateTime Monday(DateTime date) { return date.Date.AddDays(-((int)date.DayOfWeek+6)%7); }
     public WeeklyPlan GetWeek(DateTime date) { string key=Monday(date).ToString("yyyy-MM-dd"); return Weeks.Find(w=>w.WeekStart==key); }
@@ -132,7 +142,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.4";
+    const string PaceVersion="0.2.5";
     const double ActivityMismatchGraceSeconds=15;
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
@@ -141,7 +151,7 @@ public class ScreenTime : Form {
     readonly string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TrustScreenTime");
     string StatePath { get { return Path.Combine(folder,"state.xml"); } }
     string BackupPath { get { return Path.Combine(folder,"state.xml.backup"); } }
-    Label remaining, detail, status;
+    Label remaining, detail, status, trackingIndicator;
     ProgressBar progress;
     Button rest, extra;
     ComboBox weekPicker;
@@ -151,7 +161,7 @@ public class ScreenTime : Form {
     TabControl tabs;
     DateTime selectedWeek;
     string promptedWeek="";
-    bool sessionLocked;
+    bool sessionLocked,sessionSuspended,trackingSessionEnded;
     NumericUpDown[] planHours = new NumericUpDown[7];
     NumericUpDown[] planMinutes = new NumericUpDown[7];
     NumericUpDown breakMinutes;
@@ -169,7 +179,7 @@ public class ScreenTime : Form {
     double last;
     int ticks;
     bool exiting, saveFailed;
-    string stateNotice="";
+    string stateNotice="",sessionNotice="";
     Form toast;
     System.Windows.Forms.Timer cleanupTimer;
     DateTime cleanupUntil;
@@ -186,6 +196,9 @@ public class ScreenTime : Form {
     ActivityChart activityChart;
     ComboBox activityRange;
     Label activitySummary;
+    Label trackingHealthTitle,trackingHealthDetail,trackingLaunchStatus;
+    ListBox trackingEvents;
+    Button enableStartup;
     string foregroundName="";
     double foregroundSince;
     Form focusToast;
@@ -195,6 +208,7 @@ public class ScreenTime : Form {
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+    [DllImport("kernel32.dll")] static extern ulong GetTickCount64();
     Color ink = Color.FromArgb(38,58,53), green = Color.FromArgb(61,128,105);
     Color cream = Color.FromArgb(247,244,235), sage = Color.FromArgb(224,235,225);
     bool HasPlan { get { return state.GetWeek(DateTime.Now)!=null; } }
@@ -213,7 +227,7 @@ public class ScreenTime : Form {
         BackColor=cream; ForeColor=ink; Font=new Font("Segoe UI",10); StartPosition=FormStartPosition.CenterScreen;
         try { Icon appIcon=Icon.ExtractAssociatedIcon(Application.ExecutablePath); if(appIcon!=null)Icon=(Icon)appIcon.Clone(); } catch { }
         string art=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","pace-garden-fitted.png"); if(File.Exists(art)) { BackgroundImage=Image.FromFile(art); BackgroundImageLayout=ImageLayout.Zoom; }
-        LoadState(); Today(); if(state.SessionDate!=day.Date)ResetForNewDay(); EnsureCurrentWeekPlan();
+        LoadState(); Today(); if(state.SessionDate!=day.Date)ResetForNewDay(); EnsureCurrentWeekPlan(); StartTrackingSession();
         Label brand=AddLabel(this,"PACE",135,30,850,24,10); brand.ForeColor=green; brand.BackColor=Color.Transparent; brand.Font=new Font("Segoe UI Semibold",10);
         Label hero=AddLabel(this,"Make room for life off screen.",135,67,850,52,27); hero.ForeColor=ink; hero.BackColor=Color.Transparent; hero.Font=new Font("Segoe UI Semibold",27);
         Label subtitle=AddLabel(this,"A plan you choose. Gentle reminders. Always built on trust.",137,125,840,30,11); subtitle.ForeColor=Color.FromArgb(91,108,100); subtitle.BackColor=Color.Transparent;
@@ -225,7 +239,7 @@ public class ScreenTime : Form {
         rest=ButtonAt(card,"Take a break",24,171,155,delegate { StartBreak(); });
         extra=ButtonAt(card,"+ Add time",192,171,150,delegate { AddTime(); });
         ButtonAt(card,"End screen time",360,171,150,delegate { StartManualShutdown(); });
-        Label tracking=AddLabel(card,"Tracking is automatic while Pace runs.",535,177,285,28,10); tracking.ForeColor=Color.FromArgb(91,108,100);
+        trackingIndicator=AddLabel(card,"● Tracking now",535,177,285,28,10); trackingIndicator.ForeColor=Color.FromArgb(61,128,105); trackingIndicator.Font=new Font("Segoe UI Semibold",10);
         status=AddLabel(this,"",137,407,850,28,11); status.ForeColor=Color.FromArgb(76,100,91); status.BackColor=Color.Transparent;
         tabs=new TabControl { Location=new Point(135,453),Size=new Size(850,300),Padding=new Point(18,7),Appearance=TabAppearance.Buttons,DrawMode=TabDrawMode.OwnerDrawFixed,SizeMode=TabSizeMode.Fixed,ItemSize=new Size(150,34) }; tabs.DrawItem+=DrawTab; Controls.Add(tabs); Round(tabs,14);
         TabPage weekly=new TabPage("Weekly plan") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(weekly);
@@ -263,6 +277,12 @@ public class ScreenTime : Form {
         AddLabel(alerts,"%",233,112,30,28,11);
         alertVolume.ValueChanged+=delegate { state.AlertVolume=(int)alertVolume.Value; Save(); };
         AddLabel(alerts,"Windows volume and mute still apply. The corner bar stays visible when you close this window.",18,168,790,50,10);
+        TabPage health=new TabPage("Tracking health") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(health);
+        trackingHealthTitle=AddLabel(health,"● Tracking now",18,16,575,30,15); trackingHealthTitle.Font=new Font("Segoe UI Semibold",15); trackingHealthTitle.ForeColor=green;
+        trackingHealthDetail=AddLabel(health,"",18,49,575,42,10); trackingHealthDetail.ForeColor=Color.FromArgb(76,100,91);
+        trackingLaunchStatus=AddLabel(health,"",18,96,575,28,10); trackingLaunchStatus.ForeColor=Color.FromArgb(91,108,100);
+        enableStartup=ButtonAt(health,"Turn on launch at sign-in",610,20,198,38,delegate { if(startupItem!=null)startupItem.Checked=true; else SetStartWithWindows(true); RefreshTrackingHealth(); });
+        trackingEvents=new ListBox { Location=new Point(18,130),Size=new Size(790,122),BorderStyle=BorderStyle.None,HorizontalScrollbar=true,BackColor=Color.FromArgb(252,251,247) }; health.Controls.Add(trackingEvents);
         cornerBar=new CornerBar(); cornerBar.Icon=Icon; if(state.CornerPositioned)cornerBar.RestoreSavedPosition(state.CornerX,state.CornerY); cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartManualShutdown(); }; cornerBar.UserPositionChanged+=delegate { state.CornerPositioned=true; state.CornerX=cornerBar.Left; state.CornerY=cornerBar.Top; Save(); }; cornerBar.PositionReset+=delegate { state.CornerPositioned=false; Save(); };
         tray=new NotifyIcon { Icon=Icon??SystemIcons.Application,Text="Pace",Visible=true };
         ContextMenuStrip menu=new ContextMenuStrip();
@@ -275,15 +295,15 @@ public class ScreenTime : Form {
         menu.Items.Add("Exit (stop tracking)",null,delegate { exiting=true; Close(); }); tray.ContextMenuStrip=menu;
         tray.BalloonTipClicked+=delegate { OpenUpdatePage(); };
         tray.DoubleClick+=delegate { Show(); WindowState=FormWindowState.Normal; Activate(); };
-        FormClosing+=delegate(object s,FormClosingEventArgs e) { if(!exiting && e.CloseReason==CloseReason.UserClosing) { e.Cancel=true; Hide(); } else { FlushForegroundActivity(); Save(); tray.Dispose(); } };
+        FormClosing+=delegate(object s,FormClosingEventArgs e) { if(!exiting && e.CloseReason==CloseReason.UserClosing) { e.Cancel=true; Hide(); } else { FlushForegroundActivity(); EndTrackingSession("Pace closed normally."); Save(); tray.Dispose(); } };
         weekPicker.SelectedIndexChanged+=delegate { selectedWeek=Settings.Monday(DateTime.Now).AddDays(7*Math.Max(0,weekPicker.SelectedIndex)); LoadWeekEditor(); };
-        tabs.SelectedIndexChanged+=delegate { if(tabs.SelectedIndex==1)RefreshHistory(); else if(tabs.SelectedIndex==2)RefreshActivities(); };
+        tabs.SelectedIndexChanged+=delegate { if(tabs.SelectedIndex==1)RefreshHistory(); else if(tabs.SelectedIndex==2)RefreshActivities(); else if(tabs.SelectedIndex==4)RefreshTrackingHealth(); };
         ResetWeekPicker();
         SystemEvents.SessionSwitch+=SessionChanged;
         SystemEvents.PowerModeChanged+=PowerChanged;
         StyleInputs(this);
         timer=new System.Windows.Forms.Timer { Interval=1000 }; timer.Tick+=delegate { Tick(); }; timer.Start(); RefreshView();
-        Shown+=delegate { cornerStarted=true; Hide(); if(UsingAdvancedPlan && state.DailyShutdown && !state.ManualShutdown && ActiveBlock!=null)ResumeForActiveBlock(); UpdateCorner(); if(UsingAdvancedPlan && ActiveBlock==null && ExtraRemaining<=0)StartDailyShutdown(); else if(state.DailyShutdown) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowDailyShutdown(DailyShutdownMessage()); } else if(state.BreakOffscreen) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowOffscreen(); } else if(state.BreakWaiting) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowFinished(); } else if(Breaking) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowBreak(state.BreakUntil); } PromptForWeek(); if(stateNotice.Length>0) { tray.BalloonTipTitle="Pace data recovery"; tray.BalloonTipText=stateNotice; tray.ShowBalloonTip(12000); } System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer { Interval=8000 }; updateTimer.Tick+=delegate { updateTimer.Stop(); updateTimer.Dispose(); CheckForUpdates(false); }; updateTimer.Start(); };
+        Shown+=delegate { cornerStarted=true; Hide(); if(UsingAdvancedPlan && state.DailyShutdown && !state.ManualShutdown && ActiveBlock!=null)ResumeForActiveBlock(); UpdateCorner(); if(UsingAdvancedPlan && ActiveBlock==null && ExtraRemaining<=0)StartDailyShutdown(); else if(state.DailyShutdown) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowDailyShutdown(DailyShutdownMessage()); } else if(state.BreakOffscreen) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowOffscreen(); } else if(state.BreakWaiting) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowFinished(); } else if(Breaking) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowBreak(state.BreakUntil); } PromptForWeek(); string notice=(stateNotice+" "+sessionNotice).Trim(); if(notice.Length>0) { tray.BalloonTipTitle=sessionNotice.Length>0?"Pace tracking resumed":"Pace data recovery"; tray.BalloonTipText=notice; tray.ShowBalloonTip(12000); } System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer { Interval=8000 }; updateTimer.Tick+=delegate { updateTimer.Stop(); updateTimer.Dispose(); CheckForUpdates(false); }; updateTimer.Start(); };
     }
 
     string StartupCommand { get { return "\""+Application.ExecutablePath+"\""; } }
@@ -294,7 +314,7 @@ public class ScreenTime : Form {
         try { using(RegistryKey key=Registry.CurrentUser.CreateSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run")) { if(enabled)key.SetValue("Pace",StartupCommand,RegistryValueKind.String); else key.DeleteValue("Pace",false); } }
         catch { if(startupItem!=null) { startupItem.CheckedChanged-=StartupItemChanged; startupItem.Checked=!enabled; startupItem.CheckedChanged+=StartupItemChanged; } MessageBox.Show("Pace could not change the sign-in setting for this Windows account.","Pace"); }
     }
-    void StartupItemChanged(object sender,EventArgs e) { SetStartWithWindows(startupItem.Checked); }
+    void StartupItemChanged(object sender,EventArgs e) { SetStartWithWindows(startupItem.Checked); RefreshTrackingHealth(); }
     void CheckForUpdates(bool showCurrent) {
         try {
             WebClient client=new WebClient(); client.Headers[HttpRequestHeader.UserAgent]="Pace/"+PaceVersion;
@@ -375,17 +395,20 @@ public class ScreenTime : Form {
     void SessionChanged(object sender,SessionSwitchEventArgs e) {
         if(IsDisposed || !IsHandleCreated)return;
         BeginInvoke((MethodInvoker)delegate {
+            bool before=sessionLocked;
             if(e.Reason==SessionSwitchReason.SessionLock || e.Reason==SessionSwitchReason.ConsoleDisconnect || e.Reason==SessionSwitchReason.RemoteDisconnect)sessionLocked=true;
             if(e.Reason==SessionSwitchReason.SessionUnlock || e.Reason==SessionSwitchReason.ConsoleConnect || e.Reason==SessionSwitchReason.RemoteConnect)sessionLocked=false;
+            if(before!=sessionLocked) { DateTime now=DateTime.Now; LogTrackingEvent(sessionLocked?"Locked":"Unlocked",now,DateTime.MinValue,sessionLocked?"Windows was locked; screen-time tracking paused.":"Windows was unlocked; screen-time tracking resumed."); Heartbeat(); Save(); RefreshTrackingHealth(); }
             last=watch.Elapsed.TotalSeconds;
         });
     }
     void PowerChanged(object sender,PowerModeChangedEventArgs e) {
         if(IsDisposed || !IsHandleCreated)return;
-        BeginInvoke((MethodInvoker)delegate { last=watch.Elapsed.TotalSeconds; });
+        BeginInvoke((MethodInvoker)delegate { if(e.Mode==PowerModes.Suspend && !sessionSuspended) { sessionSuspended=true; LogTrackingEvent("Sleep",DateTime.Now,DateTime.MinValue,"Windows entered sleep; screen-time tracking paused."); Heartbeat(); Save(); } else if(e.Mode==PowerModes.Resume && sessionSuspended) { sessionSuspended=false; LogTrackingEvent("Wake",DateTime.Now,DateTime.MinValue,"Windows resumed; screen-time tracking continued."); Heartbeat(); Save(); } last=watch.Elapsed.TotalSeconds; RefreshTrackingHealth(); });
     }
     protected override void Dispose(bool disposing) {
         if(disposing) {
+            EndTrackingSession("Pace closed normally.");
             SystemEvents.SessionSwitch-=SessionChanged; SystemEvents.PowerModeChanged-=PowerChanged;
             if(timer!=null)timer.Dispose(); if(cleanupTimer!=null)cleanupTimer.Dispose(); if(tray!=null)tray.Dispose(); if(toast!=null)toast.Dispose(); if(focusToast!=null)focusToast.Dispose();
             if(cornerBar!=null)cornerBar.Dispose(); if(breakScreen!=null)breakScreen.Dispose(); alertSound.Dispose();
@@ -399,6 +422,10 @@ public class ScreenTime : Form {
         if(state==null || state.Weeks==null || state.Weeks.Exists(w=>w==null || w.Minutes==null || w.Minutes.Length!=7 || Array.Exists(w.Minutes,v=>v<0 || v>1440)) || (state.Interval!=15 && state.Interval!=20 && state.Interval!=30) || state.BreakMinutes<1 || state.BreakMinutes>60 || state.Days==null)throw new InvalidDataException();
         foreach(DayRecord savedDay in state.Days) { if(savedDay==null)throw new InvalidDataException(); savedDay.Used=Math.Max(0,savedDay.Used); savedDay.Extra=Math.Max(0,savedDay.Extra); savedDay.ExtraUsed=Math.Max(0,Math.Min(savedDay.Extra*60,savedDay.ExtraUsed)); savedDay.BlockUsed=Math.Max(0,savedDay.BlockUsed); savedDay.SinceReminder=Math.Max(0,savedDay.SinceReminder); savedDay.BreaksTaken=Math.Max(0,savedDay.BreaksTaken); if(savedDay.ActiveReason==null)savedDay.ActiveReason=""; if(savedDay.Reasons==null)savedDay.Reasons=new List<string>(); if(savedDay.Activities==null)savedDay.Activities=new List<ActivityRecord>(); savedDay.Activities.RemoveAll(a=>a==null || string.IsNullOrWhiteSpace(a.Name) || a.Seconds<0); foreach(ActivityRecord savedActivity in savedDay.Activities)if(string.IsNullOrEmpty(savedActivity.Category))savedActivity.Category=ActivityCategoryForLoaded(savedActivity.Name); if(savedDay.BlockActivities==null)savedDay.BlockActivities=new List<BlockActivityRecord>(); savedDay.BlockActivities.RemoveAll(a=>a==null || string.IsNullOrWhiteSpace(a.BlockKey) || string.IsNullOrWhiteSpace(a.BlockName) || string.IsNullOrWhiteSpace(a.Activity) || a.Seconds<0); }
         if(state.PlanChanges==null)state.PlanChanges=new List<PlanChange>(); if(state.Blocks==null)state.Blocks=new List<AdvancedBlock>();
+        if(state.TrackingEvents==null)state.TrackingEvents=new List<TrackingEventRecord>();
+        state.TrackingEvents.RemoveAll(e=>!ValidTrackingEvent(e));
+        if(state.TrackingEvents.Count>1000)state.TrackingEvents.RemoveRange(0,state.TrackingEvents.Count-1000);
+        if(state.LastHeartbeat==null)state.LastHeartbeat=""; if(state.LastStoppedAt==null)state.LastStoppedAt="";
         List<AdvancedBlock> validBlocks=new List<AdvancedBlock>(); foreach(AdvancedBlock savedBlock in state.Blocks)if(AdvancedBlockRules.IsValid(savedBlock) && state.Weeks.Exists(w=>w.WeekStart==savedBlock.WeekStart) && !AdvancedBlockRules.HasConflict(validBlocks,savedBlock,null)) { savedBlock.AllowedApps=AdvancedBlockRules.NormalizeAllowedApps(savedBlock.AllowedApps); validBlocks.Add(savedBlock); } state.Blocks=validBlocks;
         if(!state.AdvancedModesMigrated) { if(state.AdvancedPlan)foreach(WeeklyPlan savedWeek in state.Weeks)if(state.Blocks.Exists(b=>b.WeekStart==savedWeek.WeekStart))savedWeek.Advanced=true; state.AdvancedModesMigrated=true; }
         foreach(WeeklyPlan savedWeek in state.Weeks)if(savedWeek.Advanced && !state.Blocks.Exists(b=>b.WeekStart==savedWeek.WeekStart))savedWeek.Advanced=false;
@@ -411,6 +438,36 @@ public class ScreenTime : Form {
         try { if(File.Exists(BackupPath)) { state=ReadState(BackupPath); NormalizeState(); stateNotice="Pace recovered your plans and history from its automatic backup."; return; } } catch { }
         try { File.Copy(StatePath,StatePath+".backup-"+DateTime.Now.Ticks); } catch { }
         state=new Settings(); state.AdvancedModesMigrated=true; stateNotice="Pace could not recover the saved data, so it started with a fresh local file. The damaged file was preserved.";
+    }
+    static bool ValidTrackingTime(string value) { DateTime parsed; return DateTime.TryParse(value,out parsed); }
+    static bool ValidTrackingEvent(TrackingEventRecord item) { if(item==null || string.IsNullOrWhiteSpace(item.Kind) || !ValidTrackingTime(item.Start))return false; if(item.Kind!="Gap")return true; DateTime start,end; return DateTime.TryParse(item.Start,out start) && DateTime.TryParse(item.End,out end) && end>start; }
+    static string TrackingTime(DateTime value) { return value.ToString("o"); }
+    static DateTime BootTime() { try { return DateTime.Now.AddMilliseconds(-(double)GetTickCount64()); } catch { return DateTime.Now; } }
+    void LogTrackingEvent(string kind,DateTime start,DateTime end,string detail) {
+        if(state.TrackingEvents==null)state.TrackingEvents=new List<TrackingEventRecord>();
+        state.TrackingEvents.Add(new TrackingEventRecord { Kind=kind,Start=TrackingTime(start),End=end==DateTime.MinValue?"":TrackingTime(end),Detail=detail??"" });
+        if(state.TrackingEvents.Count>1000)state.TrackingEvents.RemoveRange(0,state.TrackingEvents.Count-1000);
+    }
+    void StartTrackingSession() {
+        DateTime now=DateTime.Now; RecordPreviousTrackingGap(now,BootTime());
+        LogTrackingEvent("Started",now,DateTime.MinValue,"Pace started tracking.");
+        state.TrackingSessionOpen=true; state.LastHeartbeat=TrackingTime(now); trackingSessionEnded=false; Save();
+    }
+    void RecordPreviousTrackingGap(DateTime now,DateTime boot) {
+        DateTime last; bool previousOpen=state.TrackingSessionOpen; string previous=previousOpen?state.LastHeartbeat:state.LastStoppedAt;
+        if(DateTime.TryParse(previous,out last) && last<now) {
+            DateTime gapStart=last; if(gapStart<boot)gapStart=boot;
+            double gap=(now-gapStart).TotalSeconds;
+            if(gap>=60) {
+                string detail=previousOpen?"Pace stopped unexpectedly. Screen use during this time is unknown.":"Pace was closed. Screen use during this time is unknown.";
+                LogTrackingEvent("Gap",gapStart,now,detail); sessionNotice="Pace found an untracked gap of "+FormatDuration(gap)+". You can review it under Tracking health.";
+            }
+        }
+    }
+    void Heartbeat() { if(trackingSessionEnded)return; state.TrackingSessionOpen=true; state.LastHeartbeat=TrackingTime(DateTime.Now); }
+    void EndTrackingSession(string detail) {
+        if(trackingSessionEnded)return; DateTime now=DateTime.Now; trackingSessionEnded=true;
+        LogTrackingEvent("Stopped",now,DateTime.MinValue,detail); state.TrackingSessionOpen=false; state.LastHeartbeat=TrackingTime(now); state.LastStoppedAt=TrackingTime(now); Save();
     }
     static string ActivityCategoryForLoaded(string name) {
         string value=(name??"").ToLowerInvariant();
@@ -446,7 +503,7 @@ public class ScreenTime : Form {
         if(UsingAdvancedPlan && !state.DailyShutdown && before==null && ExtraRemaining<=0)StartDailyShutdown();
         UpdateCleanup();
         TrackForeground(elapsed);
-        if(++ticks%15==0)Save(); RefreshView(); if(!sessionLocked)PromptForWeek();
+        if(++ticks%15==0) { Heartbeat(); Save(); } RefreshView(); if(!sessionLocked)PromptForWeek();
     }
     void ResetForNewDay() {
         state.DailyShutdown=false; state.ManualShutdown=false; state.BreakWaiting=false; state.BreakOffscreen=false; state.BreakUntil=DateTime.MinValue;
@@ -703,9 +760,29 @@ public class ScreenTime : Form {
         }
     }
     void RestoreDailyShutdown(bool restore) { if(restore && state.DailyShutdown && breakScreen!=null)breakScreen.ShowDailyShutdown(DailyShutdownMessage()); }
+    double TrackingGapSecondsForDay(DateTime date) {
+        DateTime startOfDay=date.Date,endOfDay=startOfDay.AddDays(1); double total=0;
+        foreach(TrackingEventRecord item in state.TrackingEvents)if(item.Kind=="Gap") { DateTime start,end; if(!DateTime.TryParse(item.Start,out start) || !DateTime.TryParse(item.End,out end))continue; DateTime clippedStart=start>startOfDay?start:startOfDay,clippedEnd=end<endOfDay?end:endOfDay; if(clippedEnd>clippedStart)total+=(clippedEnd-clippedStart).TotalSeconds; }
+        return total;
+    }
+    string TrackingEventLine(TrackingEventRecord item) {
+        DateTime start,end; if(!DateTime.TryParse(item.Start,out start))return item.Kind;
+        string when=start.ToString("ddd, MMM d  h:mm tt");
+        if(item.Kind=="Gap" && DateTime.TryParse(item.End,out end))return when+"–"+end.ToString(start.Date==end.Date?"h:mm tt":"ddd h:mm tt")+"    NOT TRACKED  "+FormatDuration((end-start).TotalSeconds)+"  ·  "+item.Detail;
+        return when+"    "+item.Kind.ToUpperInvariant()+"  ·  "+item.Detail;
+    }
+    void RefreshTrackingHealth() {
+        if(trackingEvents==null)return; bool startup=StartsWithWindows(); double gapToday=TrackingGapSecondsForDay(DateTime.Now);
+        trackingHealthTitle.Text=saveFailed?"● Tracking, but not saving":"● Tracking now"; trackingHealthTitle.ForeColor=saveFailed?Color.FromArgb(178,105,56):green;
+        trackingHealthDetail.Text=(saveFailed?"Pace cannot save its heartbeat or usage. Check the Pace data-folder permissions.":"The heartbeat is current. Screen-time tracking is active.")+(gapToday>0?"  "+FormatDuration(gapToday)+" was not tracked today.":"  No tracking gaps today.");
+        trackingLaunchStatus.Text=startup?"Launch at sign-in is on, so Pace can begin with Windows.":"Launch at sign-in is off. Pace cannot track until you open it."; trackingLaunchStatus.ForeColor=startup?Color.FromArgb(76,100,91):Color.FromArgb(157,96,48); enableStartup.Visible=!startup;
+        trackingEvents.BeginUpdate(); trackingEvents.Items.Clear();
+        int first=Math.Max(0,state.TrackingEvents.Count-100); for(int i=state.TrackingEvents.Count-1;i>=first;i--)trackingEvents.Items.Add(TrackingEventLine(state.TrackingEvents[i]));
+        if(trackingEvents.Items.Count==0)trackingEvents.Items.Add("No tracking events recorded yet."); trackingEvents.EndUpdate();
+    }
     void RefreshHistory() {
         if(history==null)return; history.BeginUpdate(); history.Items.Clear();
-        for(int i=state.Days.Count-1;i>=0;i--) { DayRecord record=state.Days[i]; DateTime date; string heading=DateTime.TryParse(record.Date,out date)?date.ToString("ddd, MMM d"):record.Date; double outside=0; foreach(BlockActivityRecord blockActivity in record.BlockActivities)if(!blockActivity.Matched)outside+=blockActivity.Seconds; history.Items.Add(heading+"    "+FormatDuration(record.Used)+" used    "+FormatDuration(record.Extra*60)+" extra    "+record.BreaksTaken+" break"+(record.BreaksTaken==1?"":"s")+(outside>0?"    "+FormatDuration(outside)+" outside blocks":"")); foreach(string reason in record.Reasons)history.Items.Add("    "+reason); }
+        for(int i=state.Days.Count-1;i>=0;i--) { DayRecord record=state.Days[i]; DateTime date; bool validDate=DateTime.TryParse(record.Date,out date); string heading=validDate?date.ToString("ddd, MMM d"):record.Date; double outside=0; foreach(BlockActivityRecord blockActivity in record.BlockActivities)if(!blockActivity.Matched)outside+=blockActivity.Seconds; double gaps=validDate?TrackingGapSecondsForDay(date):0; history.Items.Add(heading+"    "+FormatDuration(record.Used)+" used    "+FormatDuration(record.Extra*60)+" extra    "+record.BreaksTaken+" break"+(record.BreaksTaken==1?"":"s")+(outside>0?"    "+FormatDuration(outside)+" outside blocks":"")+(gaps>0?"    "+FormatDuration(gaps)+" not tracked":"")); foreach(string reason in record.Reasons)history.Items.Add("    "+reason); if(validDate)foreach(TrackingEventRecord item in state.TrackingEvents)if(item.Kind=="Gap") { DateTime gapStart,gapEnd; if(!DateTime.TryParse(item.Start,out gapStart) || !DateTime.TryParse(item.End,out gapEnd))continue; DateTime clippedStart=gapStart>date.Date?gapStart:date.Date,clippedEnd=gapEnd<date.Date.AddDays(1)?gapEnd:date.Date.AddDays(1); if(clippedEnd>clippedStart)history.Items.Add("    Tracking gap  "+clippedStart.ToString("h:mm tt")+"–"+clippedEnd.ToString("h:mm tt")+"  "+FormatDuration((clippedEnd-clippedStart).TotalSeconds)+"  ·  "+item.Detail); } }
         history.EndUpdate();
     }
     string CurrentStatusText() {
@@ -722,8 +799,9 @@ public class ScreenTime : Form {
         progress.Value=!HasPlan?0:Budget<=0?1000:(int)Math.Max(0,Math.Min(1000,used/Budget*1000));
         status.Text=CurrentStatusText();
         rest.Enabled=!Breaking && !state.BreakWaiting && !state.DailyShutdown; extra.Enabled=!Breaking && !state.BreakWaiting && HasPlan;
+        trackingIndicator.Text=saveFailed?"● Tracking; unable to save":"● Tracking now"; trackingIndicator.ForeColor=saveFailed?Color.FromArgb(178,105,56):green;
         UpdateCorner();
-        if(ticks%5==0) { RefreshHistory(); RefreshActivities(); }
+        if(ticks%5==0) { RefreshHistory(); RefreshActivities(); RefreshTrackingHealth(); }
     }
     static string FormatDuration(double seconds) { int min=(int)Math.Floor(Math.Max(0,seconds)/60); int hours=min/60, minutes=min%60; if(hours==0 && minutes==0)return "0m"; if(hours==0)return minutes+"m"; if(minutes==0)return hours+"h"; return hours+"h "+minutes+"m"; }
     void UpdateCorner() {
@@ -739,6 +817,7 @@ public class ScreenTime : Form {
         else { next=closingSoon?closing:periodic; timerTitle=closingSoon?"CLOSES IN":"NEXT BREAK"; }
         cornerBar.UpdateStatus(HasPlan,Budget,used,next,timerTitle);
         if(mismatchSeconds>=ActivityMismatchGraceSeconds && mismatchBlock.Length>0)cornerBar.SetFocusMismatch(mismatchBlock,mismatchActivity); else cornerBar.SetReason(day.ActiveReason);
+        cornerBar.SetTrackingHealth(!saveFailed);
         cornerBar.PlaceInCorner(Screen.PrimaryScreen.WorkingArea);
         cornerBar.SetDashboardOpen(Visible);
         if(cornerStarted && !cornerBar.Visible && !cornerBar.IsMinimized)cornerBar.Show();

@@ -12,7 +12,7 @@ public sealed class CornerBar : Form {
     bool showingReason;
     bool noticeWarning;
     string noticePrefix="";
-    readonly Label allotted, used, next, nextTitle, heading, allottedTitle, usedTitle, reason;
+    readonly Label allotted, used, next, nextTitle, heading, allottedTitle, usedTitle, reason,trackingHealth;
     readonly Button addTime, takeBreak;
     readonly Button endDay;
     readonly Button minimize;
@@ -32,6 +32,7 @@ public sealed class CornerBar : Form {
         Font=new Font("Segoe UI",10); Cursor=Cursors.Hand;
         heading=LabelAt("PACE  /  Click to open",16,9,195,18,9);
         endDay=ActionButton("End day",220,7,58,22); endDay.Click+=delegate { if(EndDayClicked!=null)EndDayClicked(this,EventArgs.Empty); };
+        trackingHealth=LabelAt("● ACTIVE",286,9,80,18,7.5f); trackingHealth.TextAlign=ContentAlignment.MiddleRight; trackingHealth.ForeColor=Color.FromArgb(179,224,189);
         minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { changingWindowMode=true; IsMinimized=true; ShowInTaskbar=true; RecreateHandle(); WindowState=FormWindowState.Minimized; changingWindowMode=false; };
         resetPosition=ActionButton("⌂",378,7,20,20); resetPosition.Font=new Font("Segoe UI Symbol",10); resetPosition.Click+=delegate { ResetPosition(); };
         reason=LabelAt("",16,34,406,50,13.5f); reason.Visible=false; reason.TextAlign=ContentAlignment.MiddleCenter; reason.BackColor=Color.FromArgb(48,85,72);
@@ -101,7 +102,8 @@ public sealed class CornerBar : Form {
         ApplyRoundedRegion();
         UpdateAccessibleDescription();
     }
-    void UpdateAccessibleDescription() { AccessibleDescription=(showingReason?noticePrefix+": "+reason.Text.Replace("\r\n",". ")+". ":"")+"Allotted: "+allotted.Text+". Used: "+used.Text+". "+nextTitle.Text+": "+next.Text; }
+    void UpdateAccessibleDescription() { AccessibleDescription="Tracking: "+(trackingHealth.Text.Contains("UNSAVED")?"active, but data is not saving":"active")+". "+(showingReason?noticePrefix+": "+reason.Text.Replace("\r\n",". ")+". ":"")+"Allotted: "+allotted.Text+". Used: "+used.Text+". "+nextTitle.Text+": "+next.Text; }
+    public void SetTrackingHealth(bool saving) { trackingHealth.Text=saving?"● ACTIVE":"● UNSAVED"; trackingHealth.ForeColor=saving?Color.FromArgb(179,224,189):Color.FromArgb(255,190,125); UpdateAccessibleDescription(); }
     public void PlaceInCorner(Rectangle area) { if(!userPositioned)Location=new Point(Math.Max(area.Left,area.Right-Width-16),Math.Max(area.Top,area.Bottom-Height-16)); }
     public void RestoreSavedPosition(int x,int y) { Point requested=new Point(x,y); Rectangle area=Screen.FromPoint(requested).WorkingArea; userPositioned=true; Location=new Point(Math.Max(area.Left,Math.Min(x,area.Right-Width)),Math.Max(area.Top,Math.Min(y,area.Bottom-Height))); }
     public void RestoreBar() { changingWindowMode=true; IsMinimized=false; WindowState=FormWindowState.Normal; ShowInTaskbar=false; RecreateHandle(); changingWindowMode=false; Show(); BringToFront(); }
