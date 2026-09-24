@@ -81,12 +81,15 @@ try {
     $corner = Field 'cornerBar'
     Assert ([CornerBar]::Countdown(-4) -eq '00:00') 'Countdown must clamp negative values'
     Assert ([CornerBar]::Countdown(60.1) -eq '01:01' -and [CornerBar]::Countdown(60) -eq '01:00') 'Countdown must round partial seconds upward'
+    Assert ([CornerBar]::Countdown(3661) -eq '1:01:01') 'Long countdowns must use hours instead of minute values above 59'
     $corner.UpdateStatus($true, 7200, 3660, 61, $false)
     Assert ($corner.AccessibleDescription -eq 'Allotted: 2h. Used: 1h 1m. NEXT BREAK: 01:01') 'Corner must display allotment, usage, and next break'
     $corner.UpdateStatus($false, 0, 120, 10, $false)
     Assert ($corner.AccessibleDescription -like 'Allotted: No plan. Used: 2m.*') 'Unplanned corner must still show usage'
     $corner.UpdateStatus($true, 60, 120, 90, $true)
     Assert ($corner.AccessibleDescription -like '*BREAK LEFT: 01:30') 'Active break must change countdown label'
+    $corner.UpdateStatus($true, 60, 120, 0, 'DAY COMPLETE')
+    Assert ($corner.AccessibleDescription -like '*DAY COMPLETE: 00:00') 'The corner must distinguish a completed day from a break'
     $normalCornerHeight = $corner.ClientSize.Height
     $corner.SetReason('Finish the history outline')
     $reasonLabel = $corner.GetType().GetField('reason', $flags).GetValue($corner)
@@ -143,11 +146,15 @@ try {
     $before = $day.Used
     Elapsed 5 $false
     Assert ($day.BreakEarned -and $state.BreakUntil -eq [datetime]::MinValue) 'Expired break must earn eligibility and clear the timer'
+    Assert ($day.BreaksTaken -eq 1) 'A completed break must be counted for reporting'
     Assert ($day.Used -eq $before) 'Tracking must remain stopped until Continue'
     Assert ($day.SinceReminder -eq 0) 'Finishing break must reset the next reminder interval'
     $breakScreen = Field 'breakScreen'
     $breakFlags = [Reflection.BindingFlags]'NonPublic,Instance'
     Assert (-not $breakScreen.GetType().GetField('cancel',$breakFlags).GetValue($breakScreen).Visible -and -not $breakScreen.GetType().GetField('addMore',$breakFlags).GetValue($breakScreen).Visible) 'A completed break must show only the Continue action'
+    $breakButtons = $breakScreen.GetType().GetField('buttons',$breakFlags).GetValue($breakScreen)
+    $continueButton = $breakScreen.GetType().GetField('continueButton',$breakFlags).GetValue($breakScreen)
+    Assert ([Math]::Abs(($continueButton.Left + $continueButton.Width/2) - $breakButtons.ClientSize.Width/2) -le 2) 'The available full-screen break action must be centered'
     $app.GetType().GetMethod('OffscreenActivity',$flags).Invoke($app,@())
     $breakScreen.GetType().GetMethod('UpdateTimer',$breakFlags).Invoke($breakScreen,@())
     Assert ($breakScreen.GetType().GetField('timerLabel',$breakFlags).GetValue($breakScreen).Text -eq '') 'Offscreen activity must stay timeless instead of restoring 00:00'
@@ -180,6 +187,8 @@ try {
     $day.ActiveBlock = ''; $day.BlockUsed = 0; $day.Used = 0; $day.Extra = 0; $day.ExtraUsed = 0; $day.Exhausted = $false
     Elapsed 60 $false
     Assert ($day.BlockUsed -eq 60 -and $day.Used -eq 60 -and $app.GetType().GetProperty('CurrentUsed',$flags).GetValue($app,$null) -eq 60) 'Advanced blocks must count both current-block usage and total reporting usage'
+    $actualBlockRemaining = $app.GetType().GetProperty('CurrentRemaining',$flags).GetValue($app,$null)
+    Assert ($actualBlockRemaining -le ([datetime]::Today.AddDays(1)-[datetime]::Now).TotalSeconds + 2) 'Advanced remaining time must follow the clock instead of claiming the full block duration'
     Call 'StartManualShutdown'; Call 'Tick'
     Assert ($state.DailyShutdown -and $state.ManualShutdown) 'A manual End screen time choice must not be undone by an active advanced block'
     $state.DailyShutdown = $false; $state.ManualShutdown = $false; $state.BreakOffscreen = $false; $day.Exhausted = $false
@@ -210,6 +219,17 @@ try {
     Elapsed 5 $false
     Assert ($day.Used -eq $before + 5 -and -not $day.Exhausted -and -not $day.Warned) 'Missing plan must count usage without budget warnings'
     $state.Weeks.Add($currentPlan)
+    $day.Activities.Clear(); $day.Activities.Add((New-Object ActivityRecord -Property @{ Name='Outlook'; Category='Communication'; Seconds=120 }))
+    $reportDate = if ([datetime]::Now.Date -eq $thisWeek) { $thisWeek.AddDays(1) } else { $thisWeek }
+    $reportDay = New-Object DayRecord -Property @{ Date=$reportDate.ToString('yyyy-MM-dd'); Used=180; Extra=5; BreaksTaken=1 }
+    $reportDay.Activities.Add((New-Object ActivityRecord -Property @{ Name='Microsoft Teams'; Category='Communication'; Seconds=180 }))
+    $state.Days.Add($reportDay)
+    (Field 'activityRange').SelectedIndex = 1; Call 'RefreshActivities'
+    $reportItems = @((Field 'activityList').Items)
+    Assert ($reportItems -contains 'Communication: 5m') 'Weekly reporting must combine activity across the current week'
+    Assert ((Field 'activitySummary').Text -like 'This week:*planned*extra*break*') 'Weekly reporting must summarize usage, plans, extra time, and completed breaks'
+    Assert ((Field 'activityChart').AccessibleDescription -like 'Communication 5 minutes*') 'The activity visualization must expose its data to accessibility tools'
+    [void]$state.Days.Remove($reportDay); $day.Activities.Clear(); (Field 'activityRange').SelectedIndex = 0
     $day.Extra = 15
     $day.ActiveReason = 'Testing visible extra-time reason'
     $day.Reasons.Add('Testing saved reason')
@@ -227,22 +247,32 @@ try {
     Assert (-not $loaded.GetWeek($nextWeek).Advanced) 'Advanced plan mode must stay attached to its own week'
     Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason' -and $loaded.Days[0].ActiveReason -eq 'Testing visible extra-time reason') 'Usage, extra time, and reasons must survive reload'
     Assert ($loaded.AlertVolume -eq 73) 'Reminder volume must survive reload'
+    Call 'Save'
+    Set-Content -LiteralPath (Join-Path $tempFolder 'state.xml') -Value '<damaged>'
+    Call 'LoadState'
+    $loaded = Field 'state'
+    Assert ($loaded.Weeks.Count -eq 2 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason') 'A damaged primary state file must recover plans and history from the automatic backup'
+    $app.GetType().GetField('day',$flags).SetValue($app,$null); Call 'Today'; $day = Field 'day'
     $loaded.DailyShutdown = $true
     $loaded.BreakWaiting = $true
     $loaded.BreakOffscreen = $true
     $loaded.BreakUntil = [datetime]::UtcNow.AddMinutes(5)
     $app.GetType().GetMethod('ResetForNewDay',$flags).Invoke($app,@())
     Assert (-not $loaded.DailyShutdown -and -not $loaded.ManualShutdown -and -not $loaded.BreakWaiting -and -not $loaded.BreakOffscreen -and $loaded.BreakUntil -eq [datetime]::MinValue -and $loaded.SessionDate -eq [datetime]::Now.ToString('yyyy-MM-dd')) 'A new day must automatically clear the previous shutdown and break states'
+    $savedArea = [Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $savedX=$savedArea.Left+40; $savedY=$savedArea.Top+40
+    $loaded.CornerPositioned=$true; $loaded.CornerX=$savedX; $loaded.CornerY=$savedY; $loaded.Days[0].ActiveReason=''
     $loaded.SessionDate = [datetime]::Now.AddDays(-1).ToString('yyyy-MM-dd'); $loaded.DailyShutdown = $true; $loaded.BreakOffscreen = $true
     Call 'Save'
     $app.Dispose(); $app = New-Object ScreenTime -ArgumentList $tempFolder; (Field 'timer').Stop()
     $restarted = Field 'state'
     Assert (-not $restarted.DailyShutdown -and -not $restarted.BreakOffscreen -and $restarted.SessionDate -eq [datetime]::Now.ToString('yyyy-MM-dd')) 'Restarting on a new day must not restore yesterday''s full-screen shutdown'
-    Write-Host 'PASS: weekly plans, visual advanced blocks, dragging, conflict rules, automatic accounting, breaks, warnings, reminders, and persistence.'
+    $restartedCorner = Field 'cornerBar'
+    Assert ($restarted.CornerPositioned -and $restartedCorner.Left -eq $savedX -and $restartedCorner.Top -eq $savedY) 'A user-positioned corner bar must return to its saved location after restart'
+    Write-Host 'PASS: planning, reporting, recovery, positioning, accounting, breaks, reminders, and persistence.'
 } finally {
     if ($app) { $app.Dispose() }
     # Delete only the known test files and empty directory; never touch real application data.
-    foreach ($name in @('state.xml', 'state.xml.tmp')) {
+    foreach ($name in @('state.xml', 'state.xml.tmp', 'state.xml.backup')) {
         $testFile = Join-Path $tempFolder $name
         if (Test-Path -LiteralPath $testFile) { Remove-Item -LiteralPath $testFile }
     }

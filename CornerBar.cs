@@ -20,6 +20,8 @@ public sealed class CornerBar : Form {
     public event EventHandler AddTimeClicked;
     public event EventHandler TakeBreakClicked;
     public event EventHandler EndDayClicked;
+    public event EventHandler UserPositionChanged;
+    public event EventHandler PositionReset;
     public CornerBar() {
         Text="Pace"; AccessibleName="Pace screen-time bar"; Icon=SystemIcons.Application;
         AutoScaleMode=AutoScaleMode.Dpi; ClientSize=new Size(438,112);
@@ -51,7 +53,7 @@ public sealed class CornerBar : Form {
     }
     [DllImport("user32.dll")] static extern bool ReleaseCapture();
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd,int msg,int wParam,int lParam);
-    void DragFromEmptySpace(object sender,MouseEventArgs e) { if(e.Button!=MouseButtons.Left)return; userPositioned=true; ReleaseCapture(); SendMessage(Handle,0xA1,2,0); }
+    void DragFromEmptySpace(object sender,MouseEventArgs e) { if(e.Button!=MouseButtons.Left)return; userPositioned=true; ReleaseCapture(); SendMessage(Handle,0xA1,2,0); if(UserPositionChanged!=null)UserPositionChanged(this,EventArgs.Empty); }
     Label LabelAt(string text,int x,int y,int w,int h,float size) {
         Label label=new Label { Text=text,Location=new Point(x,y),Size=new Size(w,h),ForeColor=Color.FromArgb(240,246,230),Font=new Font("Segoe UI",size),AutoEllipsis=true };
         Controls.Add(label); return label;
@@ -62,16 +64,19 @@ public sealed class CornerBar : Form {
     void Open(object sender,EventArgs e) { if(OpenDashboard!=null)OpenDashboard(this,EventArgs.Empty); }
     protected override bool ShowWithoutActivation { get { return true; } }
     protected override CreateParams CreateParams { get { CreateParams p=base.CreateParams; if(IsMinimized) { p.ExStyle&=~0x00000080; p.ExStyle&=~0x08000000; p.ExStyle|=0x00040000; } else p.ExStyle|=0x08000000|0x00000080; return p; } }
-    public static string Countdown(double seconds) { int whole=(int)Math.Ceiling(Math.Max(0,seconds)); return (whole/60).ToString("00")+":"+(whole%60).ToString("00"); }
+    public static string Countdown(double seconds) { int whole=(int)Math.Ceiling(Math.Max(0,seconds)); if(whole>=3600)return (whole/3600)+":"+((whole%3600)/60).ToString("00")+":"+(whole%60).ToString("00"); return (whole/60).ToString("00")+":"+(whole%60).ToString("00"); }
     static string Duration(double seconds) { int minutes=(int)Math.Floor(Math.Max(0,seconds)/60); int hours=minutes/60, rest=minutes%60; if(hours==0 && rest==0)return "0m"; if(hours==0)return rest+"m"; if(rest==0)return hours+"h"; return hours+"h "+rest+"m"; }
     public void UpdateStatus(bool hasPlan,int budgetSeconds,double usedSeconds,double nextSeconds,bool onBreak) {
         UpdateStatus(hasPlan,budgetSeconds,usedSeconds,nextSeconds,onBreak,false);
     }
     public void UpdateStatus(bool hasPlan,int budgetSeconds,double usedSeconds,double nextSeconds,bool onBreak,bool closing) {
+        UpdateStatus(hasPlan,budgetSeconds,usedSeconds,nextSeconds,onBreak?"BREAK LEFT":closing?"CLOSES IN":"NEXT BREAK");
+    }
+    public void UpdateStatus(bool hasPlan,int budgetSeconds,double usedSeconds,double nextSeconds,string timerTitle) {
         allotted.Text=hasPlan?Duration(budgetSeconds):"No plan";
         used.Text=Duration(usedSeconds);
         used.ForeColor=hasPlan && usedSeconds>budgetSeconds ? Color.FromArgb(255,190,125) : Color.FromArgb(240,246,230);
-        nextTitle.Text=onBreak?"BREAK LEFT":closing?"CLOSES IN":"NEXT BREAK";
+        nextTitle.Text=timerTitle;
         next.Text=Countdown(nextSeconds);
         progress.Value=!hasPlan?0:budgetSeconds<=0?1000:(int)Math.Max(0,Math.Min(1000,usedSeconds/budgetSeconds*1000));
         UpdateAccessibleDescription();
@@ -82,13 +87,14 @@ public sealed class CornerBar : Form {
         allottedTitle.Top=34+offset; usedTitle.Top=34+offset; nextTitle.Top=34+offset;
         addTime.Top=30+offset; takeBreak.Top=30+offset;
         allotted.Top=54+offset; used.Top=54+offset; next.Top=54+offset; progress.Top=94+offset;
-        ClientSize=new Size(438,112+offset); if(userPositioned) { Rectangle area=Screen.FromControl(this).WorkingArea; Top=Math.Max(area.Top,Math.Min(oldBottom-Height,area.Bottom-Height)); }
+        ClientSize=new Size(438,112+offset); if(userPositioned) { Rectangle area=Screen.FromControl(this).WorkingArea; Top=Math.Max(area.Top,Math.Min(oldBottom-Height,area.Bottom-Height)); if(UserPositionChanged!=null)UserPositionChanged(this,EventArgs.Empty); }
         ApplyRoundedRegion();
         UpdateAccessibleDescription();
     }
     void UpdateAccessibleDescription() { AccessibleDescription=(showingReason?"Reason: "+reason.Text+". ":"")+"Allotted: "+allotted.Text+". Used: "+used.Text+". "+nextTitle.Text+": "+next.Text; }
     public void PlaceInCorner(Rectangle area) { if(!userPositioned)Location=new Point(Math.Max(area.Left,area.Right-Width-16),Math.Max(area.Top,area.Bottom-Height-16)); }
+    public void RestoreSavedPosition(int x,int y) { Point requested=new Point(x,y); Rectangle area=Screen.FromPoint(requested).WorkingArea; userPositioned=true; Location=new Point(Math.Max(area.Left,Math.Min(x,area.Right-Width)),Math.Max(area.Top,Math.Min(y,area.Bottom-Height))); }
     public void RestoreBar() { changingWindowMode=true; IsMinimized=false; WindowState=FormWindowState.Normal; ShowInTaskbar=false; RecreateHandle(); changingWindowMode=false; Show(); BringToFront(); }
-    public void ResetPosition() { userPositioned=false; PlaceInCorner(Screen.FromControl(this).WorkingArea); }
+    public void ResetPosition() { userPositioned=false; PlaceInCorner(Screen.PrimaryScreen.WorkingArea); if(PositionReset!=null)PositionReset(this,EventArgs.Empty); }
     public void SetDashboardOpen(bool open) { heading.Text=open?"PACE  /  Click to close":"PACE  /  Click to open"; }
 }

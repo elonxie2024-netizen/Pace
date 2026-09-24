@@ -4,12 +4,13 @@ Pace is a small Windows desktop app for keeping a personal, trust-based screen-t
 
 ## What it does
 
-- Tracks screen time and records how much time is spent on each tab or app
-- Includes regular reminders of when to take a break
-- Almost every time setting configurable
-- Daily plans created weekly
-- Visual advanced plans with draggable blocks for allowed activities and times
-- Daily lockout reminders
+- Tracks screen time and records how much time is spent on each foreground tab or app
+- Shows daily and weekly activity summaries with category visuals
+- Gives periodic wrap-up reminders with options to start or cancel the break
+- Supports dated weekly plans with configurable reminder and break timing
+- Includes visual advanced plans with draggable blocks for named activities and times
+- Uses a full-screen end-of-day or between-block state while still allowing intentional extra time with a reason
+- Keeps the corner bar position, plans, usage, and reports across restarts
 
 ## Installing Pace
 
@@ -38,11 +39,12 @@ Run the app with:
 
 ## Daily use
 
-1. Start Screen Time. At the start of each week, make and save a plan for that dated week. You can also select next week to plan ahead, or edit a saved plan whenever needed.
+1. Start Pace. At the start of each week, make and save a plan for that dated week. You can also select next week to plan ahead, or edit a saved plan whenever needed.
 2. Choose a reminder interval: 15, 20, or 30 minutes. Set the break length if you want something other than the 5-minute default.
 3. Tracking starts automatically. Lock the computer when you leave it; ordinary idle time still counts so videos and controller games are included.
-4. When a reminder appears, use it as a cue to finish a natural stopping point and take the suggested break.
-5. When the 10-minute warning appears, finish what you are doing before the daily plan runs out. If you still need time afterward, request a break, then add extra time with a reason after the countdown finishes. Press **Win+L** to lock Windows when stepping away; unlocked time keeps counting even during the break countdown.
+4. When a periodic reminder appears, choose **Start break** immediately or **Cancel break**. If you leave it alone, Pace gives you a one-minute wrap-up and then starts the break automatically.
+5. When the 10-minute closing warning appears, finish what you are doing before the day or block ends. If you still need time afterward, choose **Add more time**, select hours and minutes, and write a reason. That reason remains visible on the corner bar while the extra-time session is active.
+6. Press **Win+L** when stepping away. A timed break continues while Windows is locked and waits for **Continue** after the timer finishes.
 
 Closing the main window minimizes Pace to the notification area and keeps tracking. Use the notification-area menu to reopen the window or choose **Exit**. **Exit** stops tracking and closes the app.
 
@@ -58,7 +60,7 @@ The script builds and tests Pace, downloads the official signed Inno Setup compi
 
 ## Saved state
 
-Screen Time saves its weekly plans and tracking state to:
+Pace saves its weekly plans and tracking state to:
 
 ```text
 %AppData%\TrustScreenTime\state.xml
@@ -66,10 +68,12 @@ Screen Time saves its weekly plans and tracking state to:
 
 The state is local to the Windows user account. It is not a cloud sync service and does not require an online account.
 
+Pace also maintains `state.xml.backup` in the same folder. If the main state file is damaged or interrupted during a save, Pace automatically restores the last good backup and reports the recovery through the notification-area icon.
+
 ## Current limitations
 
 - Tracking only covers time while the app runs; it cannot recover usage from when it was closed.
-- Screen Time does not inspect which applications or websites are being used.
+- Activity reporting reads the foreground application name and visible window or browser-tab title. It cannot read exact browser URLs without a browser extension.
 - Pace must be running to track time. The installer and tray menu can configure it to launch automatically when you sign in.
 - The break countdown uses elapsed time and does not verify that you took a break. It remains on screen after reaching zero until Continue is clicked.
 - Corner reminders appear while the app runs; the reminder sound depends on Windows sound settings.

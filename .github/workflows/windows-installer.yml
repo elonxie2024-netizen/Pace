@@ -15,13 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build and test Pace
-        shell: powershell
-        run: |
-          .\build.ps1
-          .\test.ps1
-
-      - name: Build installer
+      - name: Build, test, and package Pace
         shell: powershell
         run: .\build-installer.ps1
 

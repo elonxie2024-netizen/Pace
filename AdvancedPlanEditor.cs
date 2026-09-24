@@ -43,6 +43,7 @@ public sealed class AdvancedSchedulePreview : Control {
     readonly Color ink=Color.FromArgb(38,58,53), green=Color.FromArgb(61,128,105), pale=Color.FromArgb(237,243,235), conflict=Color.FromArgb(188,91,76);
     public AdvancedSchedulePreview() { DoubleBuffered=true; BackColor=Color.FromArgb(252,251,247); Font=new Font("Segoe UI Semibold",7.5f); }
     public void SetBlocks(IEnumerable<AdvancedBlock> values) { blocks.Clear(); if(values!=null)blocks.AddRange(values); Invalidate(); }
+    GraphicsPath Rounded(Rectangle rect,int radius) { GraphicsPath path=new GraphicsPath(); int d=Math.Min(radius*2,Math.Min(rect.Width,rect.Height)); path.AddArc(rect.X,rect.Y,d,d,180,90); path.AddArc(rect.Right-d,rect.Y,d,d,270,90); path.AddArc(rect.Right-d,rect.Bottom-d,d,d,0,90); path.AddArc(rect.X,rect.Bottom-d,d,d,90,90); path.CloseFigure(); return path; }
     protected override void OnPaint(PaintEventArgs e) {
         base.OnPaint(e); e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;
         int labelWidth=30, timelineX=labelWidth+4, timelineWidth=Math.Max(10,Width-timelineX-3), rowHeight=Math.Max(14,(Height-2)/7);
@@ -54,7 +55,7 @@ public sealed class AdvancedSchedulePreview : Control {
                 int start=AdvancedBlockRules.Minutes(block.Start), end=AdvancedBlockRules.Minutes(block.End);
                 int x=timelineX+(int)Math.Round(start/1440.0*timelineWidth), right=timelineX+(int)Math.Round(end/1440.0*timelineWidth);
                 Rectangle rect=new Rectangle(x,y+2,Math.Max(3,right-x),Math.Max(5,rowHeight-6)); bool hasConflict=AdvancedBlockRules.HasConflict(blocks,block,block);
-                using(Brush b=new SolidBrush(hasConflict?conflict:green))e.Graphics.FillRectangle(b,rect);
+                using(GraphicsPath path=Rounded(rect,4))using(Brush b=new SolidBrush(hasConflict?conflict:green))e.Graphics.FillPath(b,path);
             }
         }
         using(Pen border=new Pen(Color.FromArgb(205,218,207)))e.Graphics.DrawRectangle(border,new Rectangle(labelWidth+3,1,Math.Max(1,Width-labelWidth-7),Math.Max(1,rowHeight*7-2)));
@@ -111,7 +112,7 @@ public sealed class AdvancedTimeline : Control {
         using(Pen border=new Pen(Color.FromArgb(199,214,201)))e.Graphics.DrawRectangle(border,TimelineX,HeaderHeight,TimelineWidth,RowHeight*7);
         if(blocks.Count==0)using(Font emptyFont=new Font("Segoe UI",11))TextRenderer.DrawText(e.Graphics,"No blocks yet — use Add block below",emptyFont,new Rectangle(TimelineX,HeaderHeight,TimelineWidth,RowHeight*7),Color.FromArgb(91,108,100),TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter);
     }
-    static string DisplayTime(string value) { TimeSpan time; if(!TimeSpan.TryParse(value,out time))return value; return DateTime.Today.Add(time).ToString("h:mm tt"); }
+    static string DisplayTime(string value) { int minutes=AdvancedBlockRules.Minutes(value); if(minutes<0)return value; return DateTime.Today.AddMinutes(minutes).ToString("h:mm tt"); }
     AdvancedBlock Hit(Point point) { for(int i=blocks.Count-1;i>=0;i--)if(BlockRectangle(blocks[i]).Contains(point))return blocks[i]; return null; }
     int PointerMinutes(int x) { return (int)Math.Round(Math.Max(0,Math.Min(TimelineWidth,x-TimelineX))/(double)TimelineWidth*1440); }
     protected override void OnMouseDown(MouseEventArgs e) {
@@ -162,8 +163,8 @@ public sealed class AdvancedPlanEditorForm : Form {
         delete=ButtonAt(editor,"Delete",792,33,90,35,delegate { DeleteSelected(); }); delete.Visible=false;
         ButtonAt(editor,"New",893,33,70,35,delegate { ClearSelection(); });
         status=LabelAt(editor,"Blocks cannot overlap. Drag a block to move it.",18,82,940,25,9); status.ForeColor=Color.FromArgb(76,100,91);
-        ButtonAt(this,"Cancel",760,630,110,38,delegate { DialogResult=DialogResult.Cancel; });
-        ButtonAt(this,"Use this plan",885,630,125,38,delegate { if(ValidateAll())DialogResult=DialogResult.OK; });
+        Button cancel=ButtonAt(this,"Cancel",760,630,110,38,delegate { DialogResult=DialogResult.Cancel; }); cancel.DialogResult=DialogResult.Cancel; CancelButton=cancel;
+        Button usePlan=ButtonAt(this,"Use this plan",885,630,125,38,delegate { if(ValidateAll())DialogResult=DialogResult.OK; }); AcceptButton=usePlan;
         timeline.SelectionChanged+=delegate { LoadSelection(); }; timeline.BlocksChanged+=delegate { LoadSelection(); status.Text=AdvancedBlockRules.HasConflict(blocks,timeline.Selected,timeline.Selected)?"Move this block away from the overlapping block.":"Block moved. Save when the week looks right."; status.ForeColor=AdvancedBlockRules.HasConflict(blocks,timeline.Selected,timeline.Selected)?Color.FromArgb(178,73,61):Color.FromArgb(76,100,91); };
         activity.KeyDown+=delegate(object sender,KeyEventArgs e) { if(e.KeyCode==Keys.Enter) { AddOrUpdate(); e.SuppressKeyPress=true; } };
     }
@@ -177,7 +178,7 @@ public sealed class AdvancedPlanEditorForm : Form {
     }
     void ClearSelection() { timeline.SelectBlock(null); activity.Clear(); day.SelectedIndex=0; start.Value=DateTime.Today.AddHours(9); end.Value=DateTime.Today.AddHours(10); status.Text="Choose a day, start, end, and activity."; status.ForeColor=Color.FromArgb(76,100,91); activity.Focus(); }
     void AddOrUpdate() {
-        if(loadingSelection)return; int startMinutes=(int)start.Value.TimeOfDay.TotalMinutes, endMinutes=(int)Math.Min(1440,(end.Value-DateTime.Today).TotalMinutes);
+        if(loadingSelection)return; int startMinutes=(int)start.Value.TimeOfDay.TotalMinutes, endMinutes=(int)Math.Min(1440,(end.Value-DateTime.Today).TotalMinutes); if(endMinutes==0)endMinutes=1440;
         if(string.IsNullOrWhiteSpace(activity.Text)) { ShowProblem("Name what this block is for."); return; }
         if(endMinutes<=startMinutes) { ShowProblem("The end must be later than the start."); return; }
         AdvancedBlock selected=timeline.Selected; AdvancedBlock candidate=new AdvancedBlock { WeekStart=weekStart,Day=AdvancedBlockRules.RowToDay(day.SelectedIndex),Start=AdvancedBlockRules.Time(startMinutes),End=AdvancedBlockRules.Time(endMinutes),Activity=activity.Text.Trim() };
