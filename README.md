@@ -9,6 +9,7 @@ Pace is a small Windows desktop app for keeping a personal, trust-based screen-t
 - Gives periodic wrap-up reminders with options to start or cancel the break
 - Supports dated weekly plans with configurable reminder and break timing
 - Includes visual advanced plans with draggable blocks for named activities and times
+- Lets advanced blocks name the apps or visible browser-tab words that fit, then gives a calm course-check warning and reports matched versus outside-block time
 - Uses a full-screen end-of-day or between-block state while still allowing intentional extra time with a reason
 - Keeps the corner bar position, plans, usage, and reports across restarts
 
@@ -46,6 +47,8 @@ Run the app with:
 5. When the 10-minute closing warning appears, finish what you are doing before the day or block ends. If you still need time afterward, choose **Add more time**, select hours and minutes, and write a reason. That reason remains visible on the corner bar while the extra-time session is active.
 6. Press **Win+L** when stepping away. A timed break continues while Windows is locked and waits for **Continue** after the timer finishes.
 
+For an activity-aware advanced block, open **Edit blocks** and enter matching words under **Apps or visible tab words**. For example, a Homework block could use `Word, Canvas, Google Docs`. Pace waits 15 seconds before showing a mismatch so ordinary window switching does not create noise. The warning can be dismissed for five minutes, and the time is still shown in **Where time went**. Leaving the matching field blank keeps the block unrestricted.
+
 Closing the main window minimizes Pace to the notification area and keeps tracking. Use the notification-area menu to reopen the window or choose **Exit**. **Exit** stops tracking and closes the app.
 
 ## Building the Windows installer
@@ -73,7 +76,7 @@ Pace also maintains `state.xml.backup` in the same folder. If the main state fil
 ## Current limitations
 
 - Tracking only covers time while the app runs; it cannot recover usage from when it was closed.
-- Activity reporting reads the foreground application name and visible window or browser-tab title. It cannot read exact browser URLs without a browser extension.
+- Activity reporting and advanced-block matching read the foreground application name and visible window or browser-tab title. Matching ignores capitalization and checks whether any planned word appears in that text. Pace cannot read exact browser URLs without a browser extension.
 - Pace must be running to track time. The installer and tray menu can configure it to launch automatically when you sign in.
 - The break countdown uses elapsed time and does not verify that you took a break. It remains on screen after reaching zero until Continue is clicked.
 - Corner reminders appear while the app runs; the reminder sound depends on Windows sound settings.

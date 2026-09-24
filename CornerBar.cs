@@ -10,6 +10,8 @@ public sealed class CornerBar : Form {
     bool userPositioned;
     bool changingWindowMode;
     bool showingReason;
+    bool noticeWarning;
+    string noticePrefix="";
     readonly Label allotted, used, next, nextTitle, heading, allottedTitle, usedTitle, reason;
     readonly Button addTime, takeBreak;
     readonly Button endDay;
@@ -81,9 +83,17 @@ public sealed class CornerBar : Form {
         progress.Value=!hasPlan?0:budgetSeconds<=0?1000:(int)Math.Max(0,Math.Min(1000,usedSeconds/budgetSeconds*1000));
         UpdateAccessibleDescription();
     }
-    public void SetReason(string value) {
-        string clean=(value??"").Trim(); bool show=clean.Length>0; if(showingReason==show && reason.Text==clean)return;
-        int oldBottom=Bottom,offset=show?62:0; showingReason=show; reason.Text=clean; reason.Visible=show;
+    public void SetReason(string value) { SetNotice(value,"Reason",false); }
+    public void SetFocusMismatch(string blockName,string activityName) {
+        string block=(blockName??"").Trim(),activity=(activityName??"").Trim();
+        if(block.Length==0 || activity.Length==0) { SetNotice("","",false); return; }
+        SetNotice("PLANNED: "+block+"\r\n"+activity+" is outside this block","Focus cue",true);
+    }
+    void SetNotice(string value,string prefix,bool warning) {
+        string clean=(value??"").Trim(); bool show=clean.Length>0; string shownPrefix=show?prefix:""; if(showingReason==show && reason.Text==clean && noticePrefix==shownPrefix && noticeWarning==warning)return;
+        int oldBottom=Bottom,offset=show?62:0; showingReason=show; noticePrefix=show?prefix:""; reason.Text=clean; reason.Visible=show;
+        reason.BackColor=warning?Color.FromArgb(104,84,54):Color.FromArgb(48,85,72); reason.ForeColor=warning?Color.FromArgb(255,239,195):Color.FromArgb(240,246,230);
+        if(noticeWarning!=warning) { Font oldFont=reason.Font; reason.Font=new Font(warning?"Segoe UI Semibold":"Segoe UI",warning?10.5f:13.5f); oldFont.Dispose(); } noticeWarning=warning;
         allottedTitle.Top=34+offset; usedTitle.Top=34+offset; nextTitle.Top=34+offset;
         addTime.Top=30+offset; takeBreak.Top=30+offset;
         allotted.Top=54+offset; used.Top=54+offset; next.Top=54+offset; progress.Top=94+offset;
@@ -91,7 +101,7 @@ public sealed class CornerBar : Form {
         ApplyRoundedRegion();
         UpdateAccessibleDescription();
     }
-    void UpdateAccessibleDescription() { AccessibleDescription=(showingReason?"Reason: "+reason.Text+". ":"")+"Allotted: "+allotted.Text+". Used: "+used.Text+". "+nextTitle.Text+": "+next.Text; }
+    void UpdateAccessibleDescription() { AccessibleDescription=(showingReason?noticePrefix+": "+reason.Text.Replace("\r\n",". ")+". ":"")+"Allotted: "+allotted.Text+". Used: "+used.Text+". "+nextTitle.Text+": "+next.Text; }
     public void PlaceInCorner(Rectangle area) { if(!userPositioned)Location=new Point(Math.Max(area.Left,area.Right-Width-16),Math.Max(area.Top,area.Bottom-Height-16)); }
     public void RestoreSavedPosition(int x,int y) { Point requested=new Point(x,y); Rectangle area=Screen.FromPoint(requested).WorkingArea; userPositioned=true; Location=new Point(Math.Max(area.Left,Math.Min(x,area.Right-Width)),Math.Max(area.Top,Math.Min(y,area.Bottom-Height))); }
     public void RestoreBar() { changingWindowMode=true; IsMinimized=false; WindowState=FormWindowState.Normal; ShowInTaskbar=false; RecreateHandle(); changingWindowMode=false; Show(); BringToFront(); }

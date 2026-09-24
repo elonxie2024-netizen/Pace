@@ -17,8 +17,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.3.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.3.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.4.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.4.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -31,6 +31,7 @@ public class AdvancedBlock {
     public string Start="09:00";
     public string End="10:00";
     public string Activity="";
+    public string AllowedApps="";
 }
 public class PlanChange {
     public string WeekStart="";
@@ -51,10 +52,18 @@ public class DayRecord {
     public double ExtraUsed;
     public string ActiveReason="";
     public int BreaksTaken;
+    public List<BlockActivityRecord> BlockActivities = new List<BlockActivityRecord>();
 }
 public class ActivityRecord {
     public string Name = "";
     public string Category = "Other";
+    public double Seconds;
+}
+public class BlockActivityRecord {
+    public string BlockKey="";
+    public string BlockName="";
+    public string Activity="";
+    public bool Matched;
     public double Seconds;
 }
 public sealed class BreakScreen : Form {
@@ -123,7 +132,8 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.3";
+    const string PaceVersion="0.2.4";
+    const double ActivityMismatchGraceSeconds=15;
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -178,6 +188,10 @@ public class ScreenTime : Form {
     Label activitySummary;
     string foregroundName="";
     double foregroundSince;
+    Form focusToast;
+    string mismatchKey="", mismatchBlock="", mismatchActivity="", mismatchSnoozeKey="";
+    double mismatchSeconds;
+    DateTime mismatchSnoozedUntil=DateTime.MinValue;
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
@@ -321,7 +335,7 @@ public class ScreenTime : Form {
     void UpdatePlanModeUI() {
         bool advanced=planMode.SelectedIndex==1; blockPreview.Visible=advanced; editBlocks.Visible=advanced; advancedHint.Visible=advanced; weekHint.Visible=!advanced;
         for(int i=0;i<7;i++) { planDayLabels[i].Visible=!advanced; planHours[i].Visible=!advanced; planMinutes[i].Visible=!advanced; }
-        if(advanced)advancedHint.Text=pendingBlocks.Count==0?"No blocks yet.\r\nOpen the visual editor to shape this week.":pendingBlocks.Count+" block"+(pendingBlocks.Count==1?"":"s")+".\r\nDrag them in the visual editor.";
+        if(advanced) { int guided=pendingBlocks.FindAll(b=>AdvancedBlockRules.HasActivityRules(b)).Count; advancedHint.Text=pendingBlocks.Count==0?"No blocks yet.\r\nOpen the visual editor to shape this week.":pendingBlocks.Count+" block"+(pendingBlocks.Count==1?"":"s")+".\r\n"+guided+" with app cues."; }
     }
     void OpenAdvancedEditor() {
         using(AdvancedPlanEditorForm editor=new AdvancedPlanEditorForm(Settings.Monday(selectedWeek),pendingBlocks)) {
@@ -339,7 +353,7 @@ public class ScreenTime : Form {
         if(advanced && pendingBlocks.Count==0) { MessageBox.Show("Add at least one allowed-time block before saving an advanced plan.","Advanced plan"); OpenAdvancedEditor(); return; }
         int[] values=new int[7]; for(int i=0;i<7;i++)values[i]=(int)planHours[i].Value*60+(int)planMinutes[i].Value;
         state.SetWeek(selectedWeek,values); WeeklyPlan week=state.GetWeek(selectedWeek); week.Advanced=advanced; state.AdvancedPlan=advanced; SaveBlocks();
-        state.PlanChanges.Add(new PlanChange { WeekStart=Settings.Monday(selectedWeek).ToString("yyyy-MM-dd"), ChangedAt=DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Summary=advanced?"Advanced plan saved: "+pendingBlocks.Count+" blocks":"Plan saved: "+FormatPlan(values) });
+        state.PlanChanges.Add(new PlanChange { WeekStart=Settings.Monday(selectedWeek).ToString("yyyy-MM-dd"), ChangedAt=DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Summary=advanced?"Advanced plan saved: "+pendingBlocks.Count+" blocks, "+pendingBlocks.FindAll(b=>AdvancedBlockRules.HasActivityRules(b)).Count+" with app cues":"Plan saved: "+FormatPlan(values) });
         state.Interval=(int)interval.SelectedItem; state.BreakMinutes=(int)breakMinutes.Value; if(selectedWeek==Settings.Monday(DateTime.Now)) { day.Warned=false; day.Exhausted=false; }
         Save(); LoadWeekEditor(); if(selectedWeek==Settings.Monday(DateTime.Now) && advanced && ActiveBlock==null && ExtraRemaining<=0)StartDailyShutdown(); else RefreshView();
     }
@@ -373,7 +387,7 @@ public class ScreenTime : Form {
     protected override void Dispose(bool disposing) {
         if(disposing) {
             SystemEvents.SessionSwitch-=SessionChanged; SystemEvents.PowerModeChanged-=PowerChanged;
-            if(timer!=null)timer.Dispose(); if(cleanupTimer!=null)cleanupTimer.Dispose(); if(tray!=null)tray.Dispose(); if(toast!=null)toast.Dispose();
+            if(timer!=null)timer.Dispose(); if(cleanupTimer!=null)cleanupTimer.Dispose(); if(tray!=null)tray.Dispose(); if(toast!=null)toast.Dispose(); if(focusToast!=null)focusToast.Dispose();
             if(cornerBar!=null)cornerBar.Dispose(); if(breakScreen!=null)breakScreen.Dispose(); alertSound.Dispose();
         }
         base.Dispose(disposing);
@@ -383,9 +397,9 @@ public class ScreenTime : Form {
     Settings ReadState(string path) { using(var file=File.OpenRead(path))return (Settings)new XmlSerializer(typeof(Settings)).Deserialize(file); }
     void NormalizeState() {
         if(state==null || state.Weeks==null || state.Weeks.Exists(w=>w==null || w.Minutes==null || w.Minutes.Length!=7 || Array.Exists(w.Minutes,v=>v<0 || v>1440)) || (state.Interval!=15 && state.Interval!=20 && state.Interval!=30) || state.BreakMinutes<1 || state.BreakMinutes>60 || state.Days==null)throw new InvalidDataException();
-        foreach(DayRecord savedDay in state.Days) { if(savedDay==null)throw new InvalidDataException(); savedDay.Used=Math.Max(0,savedDay.Used); savedDay.Extra=Math.Max(0,savedDay.Extra); savedDay.ExtraUsed=Math.Max(0,Math.Min(savedDay.Extra*60,savedDay.ExtraUsed)); savedDay.BlockUsed=Math.Max(0,savedDay.BlockUsed); savedDay.SinceReminder=Math.Max(0,savedDay.SinceReminder); savedDay.BreaksTaken=Math.Max(0,savedDay.BreaksTaken); if(savedDay.ActiveReason==null)savedDay.ActiveReason=""; if(savedDay.Reasons==null)savedDay.Reasons=new List<string>(); if(savedDay.Activities==null)savedDay.Activities=new List<ActivityRecord>(); savedDay.Activities.RemoveAll(a=>a==null || string.IsNullOrWhiteSpace(a.Name) || a.Seconds<0); foreach(ActivityRecord savedActivity in savedDay.Activities)if(string.IsNullOrEmpty(savedActivity.Category))savedActivity.Category=ActivityCategoryForLoaded(savedActivity.Name); }
+        foreach(DayRecord savedDay in state.Days) { if(savedDay==null)throw new InvalidDataException(); savedDay.Used=Math.Max(0,savedDay.Used); savedDay.Extra=Math.Max(0,savedDay.Extra); savedDay.ExtraUsed=Math.Max(0,Math.Min(savedDay.Extra*60,savedDay.ExtraUsed)); savedDay.BlockUsed=Math.Max(0,savedDay.BlockUsed); savedDay.SinceReminder=Math.Max(0,savedDay.SinceReminder); savedDay.BreaksTaken=Math.Max(0,savedDay.BreaksTaken); if(savedDay.ActiveReason==null)savedDay.ActiveReason=""; if(savedDay.Reasons==null)savedDay.Reasons=new List<string>(); if(savedDay.Activities==null)savedDay.Activities=new List<ActivityRecord>(); savedDay.Activities.RemoveAll(a=>a==null || string.IsNullOrWhiteSpace(a.Name) || a.Seconds<0); foreach(ActivityRecord savedActivity in savedDay.Activities)if(string.IsNullOrEmpty(savedActivity.Category))savedActivity.Category=ActivityCategoryForLoaded(savedActivity.Name); if(savedDay.BlockActivities==null)savedDay.BlockActivities=new List<BlockActivityRecord>(); savedDay.BlockActivities.RemoveAll(a=>a==null || string.IsNullOrWhiteSpace(a.BlockKey) || string.IsNullOrWhiteSpace(a.BlockName) || string.IsNullOrWhiteSpace(a.Activity) || a.Seconds<0); }
         if(state.PlanChanges==null)state.PlanChanges=new List<PlanChange>(); if(state.Blocks==null)state.Blocks=new List<AdvancedBlock>();
-        List<AdvancedBlock> validBlocks=new List<AdvancedBlock>(); foreach(AdvancedBlock savedBlock in state.Blocks)if(AdvancedBlockRules.IsValid(savedBlock) && state.Weeks.Exists(w=>w.WeekStart==savedBlock.WeekStart) && !AdvancedBlockRules.HasConflict(validBlocks,savedBlock,null))validBlocks.Add(savedBlock); state.Blocks=validBlocks;
+        List<AdvancedBlock> validBlocks=new List<AdvancedBlock>(); foreach(AdvancedBlock savedBlock in state.Blocks)if(AdvancedBlockRules.IsValid(savedBlock) && state.Weeks.Exists(w=>w.WeekStart==savedBlock.WeekStart) && !AdvancedBlockRules.HasConflict(validBlocks,savedBlock,null)) { savedBlock.AllowedApps=AdvancedBlockRules.NormalizeAllowedApps(savedBlock.AllowedApps); validBlocks.Add(savedBlock); } state.Blocks=validBlocks;
         if(!state.AdvancedModesMigrated) { if(state.AdvancedPlan)foreach(WeeklyPlan savedWeek in state.Weeks)if(state.Blocks.Exists(b=>b.WeekStart==savedWeek.WeekStart))savedWeek.Advanced=true; state.AdvancedModesMigrated=true; }
         foreach(WeeklyPlan savedWeek in state.Weeks)if(savedWeek.Advanced && !state.Blocks.Exists(b=>b.WeekStart==savedWeek.WeekStart))savedWeek.Advanced=false;
         if(string.IsNullOrEmpty(state.SessionDate))foreach(DayRecord savedDay in state.Days)if(string.CompareOrdinal(savedDay.Date,state.SessionDate)>0)state.SessionDate=savedDay.Date;
@@ -437,7 +451,7 @@ public class ScreenTime : Form {
     void ResetForNewDay() {
         state.DailyShutdown=false; state.ManualShutdown=false; state.BreakWaiting=false; state.BreakOffscreen=false; state.BreakUntil=DateTime.MinValue;
         state.SessionDate=day.Date;
-        StopCleanup(); if(toast!=null && !toast.IsDisposed)toast.Close(); if(breakScreen!=null && !breakScreen.IsDisposed)breakScreen.Hide();
+        StopCleanup(); ClearBlockMismatch(); if(toast!=null && !toast.IsDisposed)toast.Close(); if(breakScreen!=null && !breakScreen.IsDisposed)breakScreen.Hide();
         last=watch.Elapsed.TotalSeconds; Save();
     }
     string ForegroundActivity() {
@@ -465,10 +479,43 @@ public class ScreenTime : Form {
     void TrackForeground(double elapsed) {
         if(sessionLocked || elapsed<=0)return;
         string current=ForegroundActivity();
-        if(current=="Pace")return;
+        if(current=="Pace") { ClearBlockMismatch(); return; }
         if(foregroundName.Length==0)foregroundName=current;
         if(current!=foregroundName) { AddActivity(foregroundName,foregroundSince); foregroundName=current; foregroundSince=0; }
         foregroundSince+=elapsed;
+        UpdateBlockAwareness(current,elapsed);
+    }
+
+    void UpdateBlockAwareness(string current,double elapsed) {
+        AdvancedBlock active=ActiveBlock;
+        bool tracking=!sessionLocked && !Breaking && !state.BreakWaiting && !state.BreakOffscreen && !state.DailyShutdown && active!=null;
+        if(!tracking || !AdvancedBlockRules.HasActivityRules(active) || string.IsNullOrWhiteSpace(current) || current=="Locked or unavailable") { ClearBlockMismatch(); return; }
+        bool fits=AdvancedBlockRules.ActivityFits(active,current); AddBlockActivity(active,current,fits,elapsed);
+        if(fits) { ClearBlockMismatch(); return; }
+        string key=active.WeekStart+":"+active.Day+":"+active.Start+":"+active.End+":"+active.Activity+":"+active.AllowedApps+":"+current.ToLowerInvariant();
+        if(key!=mismatchKey) { HideFocusReminder(); if(key!=mismatchSnoozeKey)mismatchSnoozedUntil=DateTime.MinValue; mismatchKey=key; mismatchBlock=active.Activity; mismatchActivity=current; mismatchSeconds=0; }
+        mismatchSeconds+=Math.Max(0,elapsed);
+        if(mismatchSeconds>=ActivityMismatchGraceSeconds && DateTime.UtcNow>=mismatchSnoozedUntil && (focusToast==null || focusToast.IsDisposed) && !cleanupActive)ShowFocusReminder();
+    }
+    void AddBlockActivity(AdvancedBlock block,string activity,bool matched,double seconds) {
+        if(block==null || string.IsNullOrWhiteSpace(activity) || seconds<=0)return;
+        string key=block.WeekStart+":"+block.Day+":"+block.Start+":"+block.End+":"+block.Activity;
+        BlockActivityRecord record=day.BlockActivities.Find(a=>a.BlockKey==key && a.Activity==activity && a.Matched==matched);
+        if(record==null) { record=new BlockActivityRecord { BlockKey=key,BlockName=block.Activity,Activity=activity,Matched=matched }; day.BlockActivities.Add(record); }
+        record.Seconds+=seconds;
+    }
+    void ClearBlockMismatch() { mismatchKey=""; mismatchBlock=""; mismatchActivity=""; mismatchSeconds=0; HideFocusReminder(); }
+    void HideFocusReminder() { Form current=focusToast; focusToast=null; if(current!=null && !current.IsDisposed)current.Close(); }
+    void DismissFocusReminder() { mismatchSnoozeKey=mismatchKey; mismatchSnoozedUntil=DateTime.UtcNow.AddMinutes(5); HideFocusReminder(); RefreshView(); }
+    void ShowFocusReminder() {
+        focusToast=new Reminder { Text="Outside this block",ClientSize=new Size(438,194),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=Color.FromArgb(250,244,226) };
+        Round(focusToast,14);
+        Label heading=AddLabel(focusToast,"A GENTLE COURSE CHECK",16,12,406,28,13); heading.ForeColor=Color.FromArgb(126,83,38);
+        AddLabel(focusToast,"This block is for "+mismatchBlock+".",16,43,406,27,11);
+        Label current=AddLabel(focusToast,mismatchActivity+" does not match the apps or sites you planned.",16,73,406,58,10); current.AutoEllipsis=true;
+        ButtonAt(focusToast,"Dismiss for 5 min",122,145,194,delegate { DismissFocusReminder(); });
+        focusToast.FormClosed+=delegate { alertSound.Stop(); };
+        alertSound.Play(state.AlertVolume); UpdateCorner(); focusToast.Show(); PositionFocusReminder();
     }
     string ActivityCategory(string name) {
         string value=name.ToLowerInvariant();
@@ -499,6 +546,17 @@ public class ScreenTime : Form {
         List<DayRecord> reportDays=ActivityReportDays(); List<ActivityRecord> reportActivities=new List<ActivityRecord>();
         foreach(DayRecord reportDay in reportDays)foreach(ActivityRecord activity in reportDay.Activities) { ActivityRecord combined=reportActivities.Find(a=>a.Name==activity.Name); if(combined==null) { combined=new ActivityRecord { Name=activity.Name,Category=activity.Category }; reportActivities.Add(combined); } combined.Seconds+=activity.Seconds; }
         activityList.BeginUpdate(); activityList.Items.Clear();
+        double blockMatched=0,blockOutside=0; Dictionary<string,double> outsideActivities=new Dictionary<string,double>();
+        foreach(DayRecord reportDay in reportDays)foreach(BlockActivityRecord blockActivity in reportDay.BlockActivities) {
+            if(blockActivity.Matched)blockMatched+=blockActivity.Seconds; else { blockOutside+=blockActivity.Seconds; string key=blockActivity.BlockName+"  |  "+blockActivity.Activity; if(!outsideActivities.ContainsKey(key))outsideActivities[key]=0; outsideActivities[key]+=blockActivity.Seconds; }
+        }
+        double blockMeasured=blockMatched+blockOutside;
+        if(blockMeasured>0) {
+            int fit=(int)Math.Round(blockMatched/blockMeasured*100); activityList.Items.Add("BLOCK FIT: "+fit+"%  |  "+ActivityDuration(blockMatched)+" matched  |  "+ActivityDuration(blockOutside)+" outside");
+            List<KeyValuePair<string,double>> outsideList=new List<KeyValuePair<string,double>>(outsideActivities); outsideList.Sort(delegate(KeyValuePair<string,double> a,KeyValuePair<string,double> b) { return b.Value.CompareTo(a.Value); });
+            foreach(KeyValuePair<string,double> item in outsideList)activityList.Items.Add("Outside  |  "+item.Key+": "+ActivityDuration(item.Value));
+            activityList.Items.Add("------------------------------");
+        }
         Dictionary<string,double> categories=new Dictionary<string,double>(); foreach(ActivityRecord a in reportActivities) { if(!categories.ContainsKey(a.Category))categories[a.Category]=0; categories[a.Category]+=a.Seconds; }
         List<KeyValuePair<string,double>> categoryList=new List<KeyValuePair<string,double>>(categories); categoryList.Sort(delegate(KeyValuePair<string,double> a,KeyValuePair<string,double> b) { return b.Value.CompareTo(a.Value); });
         foreach(KeyValuePair<string,double> category in categoryList)activityList.Items.Add(category.Key+": "+ActivityDuration(category.Value));
@@ -510,7 +568,7 @@ public class ScreenTime : Form {
         activityChart.SetData(reportActivities);
         double used=0,extra=0; int breaks=0,planned=0; foreach(DayRecord reportDay in reportDays) { used+=reportDay.Used; extra+=reportDay.Extra*60; breaks+=reportDay.BreaksTaken; }
         if(activityRange.SelectedIndex<=0)planned=PlannedSecondsForDay(DateTime.Now); else { DateTime monday=Settings.Monday(DateTime.Now); for(int i=0;i<7;i++)planned+=PlannedSecondsForDay(monday.AddDays(i)); }
-        activitySummary.Text=(activityRange.SelectedIndex<=0?"Today":"This week")+": "+FormatDuration(used)+" used  ·  "+FormatDuration(planned)+" planned  ·  "+FormatDuration(extra)+" extra  ·  "+breaks+" break"+(breaks==1?"":"s");
+        activitySummary.Text=(activityRange.SelectedIndex<=0?"Today":"This week")+": "+FormatDuration(used)+" used  ·  "+FormatDuration(planned)+" planned  ·  "+FormatDuration(extra)+" extra  ·  "+breaks+" break"+(breaks==1?"":"s")+(blockMeasured>0?"  ·  "+(int)Math.Round(blockMatched/blockMeasured*100)+"% block fit":"");
     }
     void ApplyElapsed(double elapsed,bool locked) {
         bool breakFinished=state.BreakUntil!=DateTime.MinValue && !Breaking;
@@ -541,7 +599,7 @@ public class ScreenTime : Form {
         if(breakFinished) { day.BreakEarned=true; day.SinceReminder=0; alertSound.Play(state.AlertVolume); Save(); }
     }
     void BeginPeriodicCleanup() {
-        StopCleanup(); cleanupActive=true; cleanupClosesPlan=false; cleanupUntil=DateTime.UtcNow.AddSeconds(60); cleanupLastPing=60;
+        HideFocusReminder(); mismatchSeconds=0; StopCleanup(); cleanupActive=true; cleanupClosesPlan=false; cleanupUntil=DateTime.UtcNow.AddSeconds(60); cleanupLastPing=60;
         toast=new Reminder { Text="Wrap up",ClientSize=new Size(438,174),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=Color.FromArgb(239,246,239) };
         Round(toast,14);
         AddLabel(toast,"TIME TO WRAP UP",16,12,406,32,15);
@@ -552,7 +610,7 @@ public class ScreenTime : Form {
         StartCleanupTimer();
     }
     void BeginClosingCountdown() {
-        StopCleanup(); cleanupActive=true; cleanupClosesPlan=true; cleanupLastPing=(int)Math.Ceiling(CleanupSecondsLeft());
+        HideFocusReminder(); mismatchSeconds=0; StopCleanup(); cleanupActive=true; cleanupClosesPlan=true; cleanupLastPing=(int)Math.Ceiling(CleanupSecondsLeft());
         toast=new Reminder { Text="Screen time ending",ClientSize=new Size(438,150),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=Color.FromArgb(239,246,239) };
         Round(toast,14);
         AddLabel(toast,UsingAdvancedPlan && ActiveBlock!=null?"BLOCK ENDING SOON":"SCREEN TIME ENDING",16,12,406,32,15);
@@ -593,7 +651,7 @@ public class ScreenTime : Form {
     void CancelCleanup() { if(cleanupClosesPlan)return; StopCleanup(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
     void StartBreak() {
         if(Breaking || state.BreakWaiting)return;
-        StopCleanup();
+        ClearBlockMismatch(); StopCleanup();
         state.BreakUntil=DateTime.UtcNow.AddMinutes(state.BreakMinutes); state.BreakWaiting=false; state.BreakOffscreen=false; day.SinceReminder=0; Save();
         if(breakScreen==null || breakScreen.IsDisposed)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime);
         breakScreen.ShowBreak(state.BreakUntil); RefreshView();
@@ -601,7 +659,7 @@ public class ScreenTime : Form {
     void StartDailyShutdown() { BeginDailyShutdown(false); }
     void StartManualShutdown() { BeginDailyShutdown(true); }
     void BeginDailyShutdown(bool manual) {
-        StopCleanup();
+        ClearBlockMismatch(); StopCleanup();
         state.ManualShutdown=manual;
         day.ActiveReason="";
         day.Exhausted=true; state.DailyShutdown=true; state.BreakWaiting=false; state.BreakOffscreen=true; state.BreakUntil=DateTime.MinValue; Save();
@@ -647,14 +705,14 @@ public class ScreenTime : Form {
     void RestoreDailyShutdown(bool restore) { if(restore && state.DailyShutdown && breakScreen!=null)breakScreen.ShowDailyShutdown(DailyShutdownMessage()); }
     void RefreshHistory() {
         if(history==null)return; history.BeginUpdate(); history.Items.Clear();
-        for(int i=state.Days.Count-1;i>=0;i--) { DayRecord record=state.Days[i]; DateTime date; string heading=DateTime.TryParse(record.Date,out date)?date.ToString("ddd, MMM d"):record.Date; history.Items.Add(heading+"    "+FormatDuration(record.Used)+" used    "+FormatDuration(record.Extra*60)+" extra    "+record.BreaksTaken+" break"+(record.BreaksTaken==1?"":"s")); foreach(string reason in record.Reasons)history.Items.Add("    "+reason); }
+        for(int i=state.Days.Count-1;i>=0;i--) { DayRecord record=state.Days[i]; DateTime date; string heading=DateTime.TryParse(record.Date,out date)?date.ToString("ddd, MMM d"):record.Date; double outside=0; foreach(BlockActivityRecord blockActivity in record.BlockActivities)if(!blockActivity.Matched)outside+=blockActivity.Seconds; history.Items.Add(heading+"    "+FormatDuration(record.Used)+" used    "+FormatDuration(record.Extra*60)+" extra    "+record.BreaksTaken+" break"+(record.BreaksTaken==1?"":"s")+(outside>0?"    "+FormatDuration(outside)+" outside blocks":"")); foreach(string reason in record.Reasons)history.Items.Add("    "+reason); }
         history.EndUpdate();
     }
     string CurrentStatusText() {
         if(state.DailyShutdown)return "SCREEN TIME COMPLETE  ·  Add more time with a reason when you need it.";
         if(Breaking)return "BREAK IN PROGRESS  ·  Screen-time tracking is paused.";
         if(state.BreakWaiting || state.BreakOffscreen)return "OFFSCREEN TIME  ·  Continue when you are ready.";
-        if(UsingAdvancedPlan) { AdvancedBlock block=ActiveBlock; if(block!=null)return "ACTIVE BLOCK  ·  "+block.Activity+"  ·  ends "+DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(block.End)).ToString("h:mm tt"); if(ExtraRemaining>0)return "EXTRA TIME  ·  "+(string.IsNullOrWhiteSpace(day.ActiveReason)?"Use this time intentionally.":day.ActiveReason); DateTime? next=NextBlockStart; return next==null?"NO MORE BLOCKS THIS WEEK":"NEXT BLOCK  ·  "+next.Value.ToString("ddd h:mm tt"); }
+        if(UsingAdvancedPlan) { AdvancedBlock block=ActiveBlock; if(block!=null) { if(mismatchSeconds>=ActivityMismatchGraceSeconds)return "OUTSIDE THIS BLOCK  ·  "+mismatchActivity+" does not match "+block.Activity+"."; return "ACTIVE BLOCK  ·  "+block.Activity+"  ·  ends "+DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(block.End)).ToString("h:mm tt"); } if(ExtraRemaining>0)return "EXTRA TIME  ·  "+(string.IsNullOrWhiteSpace(day.ActiveReason)?"Use this time intentionally.":day.ActiveReason); DateTime? next=NextBlockStart; return next==null?"NO MORE BLOCKS THIS WEEK":"NEXT BLOCK  ·  "+next.Value.ToString("ddd h:mm tt"); }
         return "AUTO TRACKING  ·  Unlocked time counts. Lock with Win+L when you step away.";
     }
     void RefreshView() {
@@ -680,19 +738,24 @@ public class ScreenTime : Form {
         else if(cleanupActive) { next=CleanupSecondsLeft(); timerTitle=cleanupClosesPlan?"CLOSES IN":"BREAK IN"; }
         else { next=closingSoon?closing:periodic; timerTitle=closingSoon?"CLOSES IN":"NEXT BREAK"; }
         cornerBar.UpdateStatus(HasPlan,Budget,used,next,timerTitle);
-        cornerBar.SetReason(day.ActiveReason);
+        if(mismatchSeconds>=ActivityMismatchGraceSeconds && mismatchBlock.Length>0)cornerBar.SetFocusMismatch(mismatchBlock,mismatchActivity); else cornerBar.SetReason(day.ActiveReason);
         cornerBar.PlaceInCorner(Screen.PrimaryScreen.WorkingArea);
         cornerBar.SetDashboardOpen(Visible);
         if(cornerStarted && !cornerBar.Visible && !cornerBar.IsMinimized)cornerBar.Show();
         PositionReminder();
     }
     void PositionReminder() {
-        if(toast==null || toast.IsDisposed || cornerBar==null)return;
-        Rectangle area=Screen.FromControl(cornerBar).WorkingArea;
-        toast.Location=new Point(Math.Max(area.Left,cornerBar.Right-toast.Width),Math.Max(area.Top,cornerBar.Top-toast.Height-10));
+        if(cornerBar==null)return;
+        if(toast!=null && !toast.IsDisposed) { Rectangle area=Screen.FromControl(cornerBar).WorkingArea; toast.Location=new Point(Math.Max(area.Left,cornerBar.Right-toast.Width),Math.Max(area.Top,cornerBar.Top-toast.Height-10)); }
+        PositionFocusReminder();
+    }
+    void PositionFocusReminder() {
+        if(focusToast==null || focusToast.IsDisposed || cornerBar==null)return;
+        Rectangle area=Screen.FromControl(cornerBar).WorkingArea; int anchor=toast!=null && !toast.IsDisposed?toast.Top-10:cornerBar.Top-10;
+        focusToast.Location=new Point(Math.Max(area.Left,cornerBar.Right-focusToast.Width),Math.Max(area.Top,anchor-focusToast.Height));
     }
     void Notify(string title,string message) {
-        StopCleanup();
+        HideFocusReminder(); StopCleanup();
         alertSound.Play(state.AlertVolume);
         toast=new Reminder { Text=title,ClientSize=new Size(438,174),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=Color.FromArgb(239,246,239) };
         Round(toast,14);

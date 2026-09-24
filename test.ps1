@@ -45,7 +45,7 @@ try {
     Assert $minuteInputs[0].Enabled 'Minutes must be enabled again below 24 hours'
 
     $blockA = New-Object AdvancedBlock
-    $blockA.WeekStart = $thisWeek.ToString('yyyy-MM-dd'); $blockA.Day = 1; $blockA.Start = '09:00'; $blockA.End = '10:00'; $blockA.Activity = 'School'
+    $blockA.WeekStart = $thisWeek.ToString('yyyy-MM-dd'); $blockA.Day = 1; $blockA.Start = '09:00'; $blockA.End = '10:00'; $blockA.Activity = 'School'; $blockA.AllowedApps = 'Word, Canvas, word'
     $blockB = New-Object AdvancedBlock
     $blockB.WeekStart = $blockA.WeekStart; $blockB.Day = 1; $blockB.Start = '09:45'; $blockB.End = '11:00'; $blockB.Activity = 'Creative work'
     $blockC = New-Object AdvancedBlock
@@ -54,6 +54,20 @@ try {
     Assert (-not [AdvancedBlockRules]::Overlaps($blockA,$blockC)) 'Adjacent advanced blocks must be allowed'
     $differentWeekBlock = [AdvancedBlockRules]::Copy($blockA,$nextWeek.ToString('yyyy-MM-dd'))
     Assert (-not [AdvancedBlockRules]::Overlaps($blockA,$differentWeekBlock)) 'Blocks in different weeks must not conflict with each other'
+    Assert ([AdvancedBlockRules]::NormalizeAllowedApps($blockA.AllowedApps) -eq 'Word, Canvas') 'Activity matching words must be trimmed and deduplicated without changing their readable spelling'
+    Assert ([AdvancedBlockRules]::ActivityFits($blockA,'Microsoft Word - Essay') -and -not [AdvancedBlockRules]::ActivityFits($blockA,'YouTube - Music')) 'Advanced blocks must compare the foreground title with any configured app or tab word'
+    Assert ($differentWeekBlock.AllowedApps -eq $blockA.AllowedApps) 'Copying a week must retain activity matching words'
+    $advancedEditor = New-Object AdvancedPlanEditorForm -ArgumentList $thisWeek,([AdvancedBlock[]]@($blockA))
+    $editorBlocks = $advancedEditor.GetType().GetField('blocks',$flags).GetValue($advancedEditor)
+    $editorTimeline = $advancedEditor.GetType().GetField('timeline',$flags).GetValue($advancedEditor)
+    $editorTimeline.SelectBlock($editorBlocks[0])
+    $allowedAppsInput = $advancedEditor.GetType().GetField('allowedApps',$flags).GetValue($advancedEditor)
+    $editorStatus = $advancedEditor.GetType().GetField('status',$flags).GetValue($advancedEditor)
+    Assert ($allowedAppsInput.Text -eq $blockA.AllowedApps -and $allowedAppsInput.Bottom -lt $editorStatus.Top) 'The advanced editor must load activity words into a dedicated field without overlapping its status text'
+    $allowedAppsInput.Text = 'Outlook; Teams; outlook'
+    $advancedEditor.GetType().GetMethod('AddOrUpdate',$flags).Invoke($advancedEditor,@())
+    Assert ($advancedEditor.ResultBlocks[0].AllowedApps -eq 'Outlook, Teams') 'Updating a block must save normalized app and site matching words'
+    $advancedEditor.Dispose()
     Assert ([AdvancedBlockRules]::Time(1440) -eq '24:00') 'The timeline must preserve a block ending at midnight'
     Assert ([AdvancedBlockRules]::Minutes('24:00') -eq 1440) 'Midnight block endings must convert to 1440 minutes'
     Assert ([AdvancedBlockRules]::IsValid((New-Object AdvancedBlock -Property @{ WeekStart=$thisWeek.ToString('yyyy-MM-dd'); Day=1; Start='23:00'; End='24:00'; Activity='Late work' }))) 'A block ending at midnight must be valid'
@@ -98,6 +112,10 @@ try {
     Assert ($reasonLabel.Bottom -lt $allottedTitle.Top -and $corner.AccessibleDescription -like 'Reason: Finish the history outline.*') 'The reason must not overlap the existing corner-bar controls'
     $corner.SetReason('')
     Assert ($reasonLabel.Text -eq '' -and $corner.ClientSize.Height -eq $normalCornerHeight) 'The corner bar must return to its compact layout when no reason is active'
+    $corner.SetFocusMismatch('Homework','YouTube - Microsoft Edge')
+    Assert ($corner.AccessibleDescription -like 'Focus cue: PLANNED: Homework*YouTube*outside this block*') 'An activity mismatch must receive a clear accessible course-check message'
+    Assert ($reasonLabel.Bottom -lt $allottedTitle.Top) 'The activity mismatch must expand the corner bar without overlapping its controls'
+    $corner.SetReason('')
     $cornerProgress = $corner.GetType().GetField('progress', $flags).GetValue($corner)
     Assert ($cornerProgress.Value -eq 1000) 'Over-budget progress must clamp at maximum'
     Call 'RefreshView'
@@ -182,11 +200,25 @@ try {
     $currentPlan = $state.GetWeek($thisWeek)
     $currentPlan.Advanced = $true
     $activeBlock = New-Object AdvancedBlock
-    $activeBlock.WeekStart = $thisWeek.ToString('yyyy-MM-dd'); $activeBlock.Day = [int][datetime]::Now.DayOfWeek; $activeBlock.Start = '00:00'; $activeBlock.End = '24:00'; $activeBlock.Activity = 'All-day test block'
+    $activeBlock.WeekStart = $thisWeek.ToString('yyyy-MM-dd'); $activeBlock.Day = [int][datetime]::Now.DayOfWeek; $activeBlock.Start = '00:00'; $activeBlock.End = '24:00'; $activeBlock.Activity = 'All-day test block'; $activeBlock.AllowedApps = 'Word, Canvas'
     $state.Blocks.Add($activeBlock)
     $day.ActiveBlock = ''; $day.BlockUsed = 0; $day.Used = 0; $day.Extra = 0; $day.ExtraUsed = 0; $day.Exhausted = $false
     Elapsed 60 $false
     Assert ($day.BlockUsed -eq 60 -and $day.Used -eq 60 -and $app.GetType().GetProperty('CurrentUsed',$flags).GetValue($app,$null) -eq 60) 'Advanced blocks must count both current-block usage and total reporting usage'
+    $awareness = $app.GetType().GetMethod('UpdateBlockAwareness',$flags)
+    $awareness.Invoke($app,@('Microsoft Word - Essay',[double]20))
+    $awareness.Invoke($app,@('YouTube - Microsoft Edge',[double]16))
+    Assert ($day.BlockActivities.Count -eq 2 -and $day.BlockActivities[0].Matched -and -not $day.BlockActivities[1].Matched) 'Activity-aware blocks must record matched and outside-block time separately'
+    Call 'RefreshView'
+    Assert ($corner.AccessibleDescription -like 'Focus cue:*All-day test block*YouTube*') 'A mismatch lasting beyond the grace period must appear on the persistent corner bar'
+    $focusToast = Field 'focusToast'
+    $focusButtons = @($focusToast.Controls | Where-Object { $_ -is [Windows.Forms.Button] })
+    Assert ($focusButtons.Count -eq 1 -and $focusButtons[0].Text -eq 'Dismiss for 5 min') 'The mismatch reminder must have one clear action with a real snooze effect'
+    $focusButtons[0].PerformClick()
+    Assert ($null -eq (Field 'focusToast') -and (Field 'mismatchSnoozedUntil') -gt [datetime]::UtcNow) 'Dismissing a mismatch must snooze its pop-up for five minutes'
+    $awareness.Invoke($app,@('Canvas - Assignments',[double]1))
+    Call 'RefreshView'
+    Assert ($corner.AccessibleDescription -notlike 'Focus cue:*') 'Returning to a matching app must clear the corner mismatch immediately'
     $actualBlockRemaining = $app.GetType().GetProperty('CurrentRemaining',$flags).GetValue($app,$null)
     Assert ($actualBlockRemaining -le ([datetime]::Today.AddDays(1)-[datetime]::Now).TotalSeconds + 2) 'Advanced remaining time must follow the clock instead of claiming the full block duration'
     Call 'StartManualShutdown'; Call 'Tick'
@@ -223,11 +255,15 @@ try {
     $reportDate = if ([datetime]::Now.Date -eq $thisWeek) { $thisWeek.AddDays(1) } else { $thisWeek }
     $reportDay = New-Object DayRecord -Property @{ Date=$reportDate.ToString('yyyy-MM-dd'); Used=180; Extra=5; BreaksTaken=1 }
     $reportDay.Activities.Add((New-Object ActivityRecord -Property @{ Name='Microsoft Teams'; Category='Communication'; Seconds=180 }))
+    $reportDay.BlockActivities.Add((New-Object BlockActivityRecord -Property @{ BlockKey='report'; BlockName='Homework'; Activity='Microsoft Word'; Matched=$true; Seconds=180 }))
+    $reportDay.BlockActivities.Add((New-Object BlockActivityRecord -Property @{ BlockKey='report'; BlockName='Homework'; Activity='YouTube'; Matched=$false; Seconds=60 }))
     $state.Days.Add($reportDay)
     (Field 'activityRange').SelectedIndex = 1; Call 'RefreshActivities'
     $reportItems = @((Field 'activityList').Items)
     Assert ($reportItems -contains 'Communication: 5m') 'Weekly reporting must combine activity across the current week'
+    Assert (($reportItems | Where-Object { $_ -like 'BLOCK FIT:*' }).Count -eq 1 -and ($reportItems | Where-Object { $_ -like 'Outside*Homework*YouTube*' }).Count -eq 1) 'Reporting must summarize block fit and name the activities used outside a planned block'
     Assert ((Field 'activitySummary').Text -like 'This week:*planned*extra*break*') 'Weekly reporting must summarize usage, plans, extra time, and completed breaks'
+    Assert ((Field 'activitySummary').Text -like '*block fit') 'Weekly reporting must include the advanced-block fit percentage when matching data exists'
     Assert ((Field 'activityChart').AccessibleDescription -like 'Communication 5 minutes*') 'The activity visualization must expose its data to accessibility tools'
     [void]$state.Days.Remove($reportDay); $day.Activities.Clear(); (Field 'activityRange').SelectedIndex = 0
     $day.Extra = 15
@@ -243,7 +279,7 @@ try {
     Call 'LoadState'
     $loaded = Field 'state'
     Assert ($loaded.Weeks.Count -eq 2 -and $loaded.GetWeek($nextWeek).Minutes[1] -eq 70) 'Dated plans must survive reload'
-    Assert ($loaded.GetWeek($thisWeek).Advanced -and $loaded.Blocks.Count -eq 1) 'Advanced plan mode must survive reload while invalid blocks are discarded'
+    Assert ($loaded.GetWeek($thisWeek).Advanced -and $loaded.Blocks.Count -eq 1 -and $loaded.Blocks[0].AllowedApps -eq 'Word, Canvas') 'Advanced plan mode and normalized activity matching words must survive reload while invalid blocks are discarded'
     Assert (-not $loaded.GetWeek($nextWeek).Advanced) 'Advanced plan mode must stay attached to its own week'
     Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason' -and $loaded.Days[0].ActiveReason -eq 'Testing visible extra-time reason') 'Usage, extra time, and reasons must survive reload'
     Assert ($loaded.AlertVolume -eq 73) 'Reminder volume must survive reload'
@@ -268,7 +304,7 @@ try {
     Assert (-not $restarted.DailyShutdown -and -not $restarted.BreakOffscreen -and $restarted.SessionDate -eq [datetime]::Now.ToString('yyyy-MM-dd')) 'Restarting on a new day must not restore yesterday''s full-screen shutdown'
     $restartedCorner = Field 'cornerBar'
     Assert ($restarted.CornerPositioned -and $restartedCorner.Left -eq $savedX -and $restartedCorner.Top -eq $savedY) 'A user-positioned corner bar must return to its saved location after restart'
-    Write-Host 'PASS: planning, reporting, recovery, positioning, accounting, breaks, reminders, and persistence.'
+    Write-Host 'PASS: planning, activity-aware blocks, reporting, recovery, positioning, accounting, breaks, reminders, and persistence.'
 } finally {
     if ($app) { $app.Dispose() }
     # Delete only the known test files and empty directory; never touch real application data.

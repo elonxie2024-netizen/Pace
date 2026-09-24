@@ -6,7 +6,7 @@ using System.Windows.Forms;
 
 public static class AdvancedBlockRules {
     public static AdvancedBlock Copy(AdvancedBlock source,string weekStart) {
-        return new AdvancedBlock { WeekStart=weekStart,Day=source.Day,Start=source.Start,End=source.End,Activity=source.Activity };
+        return new AdvancedBlock { WeekStart=weekStart,Day=source.Day,Start=source.Start,End=source.End,Activity=source.Activity,AllowedApps=source.AllowedApps };
     }
     public static int Minutes(string value) {
         if(string.IsNullOrWhiteSpace(value))return -1;
@@ -32,6 +32,19 @@ public static class AdvancedBlockRules {
         if(block==null || block.Day<0 || block.Day>6 || string.IsNullOrWhiteSpace(block.WeekStart) || string.IsNullOrWhiteSpace(block.Activity))return false;
         int start=Minutes(block.Start),end=Minutes(block.End);
         return start>=0 && end>start && end<=1440;
+    }
+    public static string NormalizeAllowedApps(string value) {
+        if(string.IsNullOrWhiteSpace(value))return "";
+        string[] pieces=value.Split(new[]{',',';','\r','\n'},StringSplitOptions.RemoveEmptyEntries); List<string> terms=new List<string>();
+        foreach(string piece in pieces) { string clean=piece.Trim(); if(clean.Length==0)continue; if(!terms.Exists(t=>string.Equals(t,clean,StringComparison.OrdinalIgnoreCase)))terms.Add(clean); }
+        return string.Join(", ",terms.ToArray());
+    }
+    public static bool HasActivityRules(AdvancedBlock block) { return block!=null && NormalizeAllowedApps(block.AllowedApps).Length>0; }
+    public static bool ActivityFits(AdvancedBlock block,string activity) {
+        string rules=block==null?"":NormalizeAllowedApps(block.AllowedApps); if(rules.Length==0)return true;
+        string current=(activity??"").Trim(); if(current.Length==0)return false;
+        foreach(string term in rules.Split(new[]{','},StringSplitOptions.RemoveEmptyEntries)) { string clean=term.Trim(); if(clean=="*" || current.IndexOf(clean,StringComparison.OrdinalIgnoreCase)>=0)return true; }
+        return false;
     }
     public static string DayName(int day) { return new[]{"Sun","Mon","Tue","Wed","Thu","Fri","Sat"}[Math.Max(0,Math.Min(6,day))]; }
     public static int DayToRow(int day) { return day==0?6:day-1; }
@@ -142,7 +155,7 @@ public sealed class AdvancedPlanEditorForm : Form {
     readonly AdvancedTimeline timeline;
     readonly ComboBox day;
     readonly DateTimePicker start,end;
-    readonly TextBox activity;
+    readonly TextBox activity,allowedApps;
     readonly Label status;
     readonly Button addOrUpdate,delete;
     readonly Color ink=Color.FromArgb(38,58,53), green=Color.FromArgb(61,128,105), cream=Color.FromArgb(247,244,235), sage=Color.FromArgb(224,235,225);
@@ -150,11 +163,11 @@ public sealed class AdvancedPlanEditorForm : Form {
     public List<AdvancedBlock> ResultBlocks { get { List<AdvancedBlock> result=new List<AdvancedBlock>(); foreach(AdvancedBlock block in blocks)result.Add(AdvancedBlockRules.Copy(block,weekStart)); return result; } }
     public AdvancedPlanEditorForm(DateTime monday,IEnumerable<AdvancedBlock> source) {
         weekStart=monday.ToString("yyyy-MM-dd"); foreach(AdvancedBlock block in source)blocks.Add(AdvancedBlockRules.Copy(block,weekStart));
-        Text="Advanced plan · "+monday.ToString("MMM d")+"–"+monday.AddDays(6).ToString("MMM d"); ClientSize=new Size(1040,690); StartPosition=FormStartPosition.CenterParent; FormBorderStyle=FormBorderStyle.FixedDialog; BackColor=cream; ForeColor=ink; Font=new Font("Segoe UI",10); MaximizeBox=false;
+        Text="Advanced plan · "+monday.ToString("MMM d")+"–"+monday.AddDays(6).ToString("MMM d"); ClientSize=new Size(1040,750); StartPosition=FormStartPosition.CenterParent; FormBorderStyle=FormBorderStyle.FixedDialog; BackColor=cream; ForeColor=ink; Font=new Font("Segoe UI",10); MaximizeBox=false;
         Label title=LabelAt(this,"Shape your week",30,22,650,42,24); title.Font=new Font("Segoe UI Semibold",24); title.BackColor=Color.Transparent;
-        Label help=LabelAt(this,"Add focused blocks, then drag them across the timeline in 15-minute steps.",32,67,850,28,10); help.ForeColor=Color.FromArgb(91,108,100); help.BackColor=Color.Transparent;
-        timeline=new AdvancedTimeline(blocks) { Location=new Point(30,105),Size=new Size(980,365),Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right }; Controls.Add(timeline);
-        Panel editor=new Panel { Location=new Point(30,486),Size=new Size(980,125),BackColor=sage,Anchor=AnchorStyles.Left|AnchorStyles.Right|AnchorStyles.Bottom }; Controls.Add(editor); Round(editor,16);
+        Label help=LabelAt(this,"Add focused blocks, assign the apps or visible tab words that fit, then drag blocks in 15-minute steps.",32,67,940,28,10); help.ForeColor=Color.FromArgb(91,108,100); help.BackColor=Color.Transparent;
+        timeline=new AdvancedTimeline(blocks) { Location=new Point(30,105),Size=new Size(980,330),Anchor=AnchorStyles.Top|AnchorStyles.Left|AnchorStyles.Right }; Controls.Add(timeline);
+        Panel editor=new Panel { Location=new Point(30,451),Size=new Size(980,220),BackColor=sage,Anchor=AnchorStyles.Left|AnchorStyles.Right|AnchorStyles.Bottom }; Controls.Add(editor); Round(editor,16);
         LabelAt(editor,"DAY",18,12,80,20,8); day=new ComboBox { Location=new Point(18,36),Size=new Size(125,29),DropDownStyle=ComboBoxStyle.DropDownList }; day.Items.AddRange(new object[]{"Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"}); day.SelectedIndex=0; editor.Controls.Add(day); Round(day,7);
         LabelAt(editor,"START",158,12,80,20,8); start=TimePicker(158,36); editor.Controls.Add(start); Round(start,7);
         LabelAt(editor,"END",274,12,80,20,8); end=TimePicker(274,36); end.Value=DateTime.Today.AddHours(10); editor.Controls.Add(end); Round(end,7);
@@ -162,11 +175,14 @@ public sealed class AdvancedPlanEditorForm : Form {
         addOrUpdate=ButtonAt(editor,"Add block",651,33,130,35,delegate { AddOrUpdate(); });
         delete=ButtonAt(editor,"Delete",792,33,90,35,delegate { DeleteSelected(); }); delete.Visible=false;
         ButtonAt(editor,"New",893,33,70,35,delegate { ClearSelection(); });
-        status=LabelAt(editor,"Blocks cannot overlap. Drag a block to move it.",18,82,940,25,9); status.ForeColor=Color.FromArgb(76,100,91);
-        Button cancel=ButtonAt(this,"Cancel",760,630,110,38,delegate { DialogResult=DialogResult.Cancel; }); cancel.DialogResult=DialogResult.Cancel; CancelButton=cancel;
-        Button usePlan=ButtonAt(this,"Use this plan",885,630,125,38,delegate { if(ValidateAll())DialogResult=DialogResult.OK; }); AcceptButton=usePlan;
+        LabelAt(editor,"APPS OR VISIBLE TAB WORDS (OPTIONAL)",18,82,300,20,8); allowedApps=new TextBox { Location=new Point(18,106),Size=new Size(617,29),MaxLength=500 }; editor.Controls.Add(allowedApps); Round(allowedApps,7);
+        Label matchingHelp=LabelAt(editor,"Separate names with commas, such as Word, Canvas, Google Docs. Leave blank when anything fits.",651,100,312,46,8.5f); matchingHelp.ForeColor=Color.FromArgb(76,100,91);
+        status=LabelAt(editor,"Blocks cannot overlap. Pace warns when the active app does not fit your block.",18,170,940,25,9); status.ForeColor=Color.FromArgb(76,100,91);
+        Button cancel=ButtonAt(this,"Cancel",760,692,110,38,delegate { DialogResult=DialogResult.Cancel; }); cancel.DialogResult=DialogResult.Cancel; CancelButton=cancel;
+        Button usePlan=ButtonAt(this,"Use this plan",885,692,125,38,delegate { if(ValidateAll())DialogResult=DialogResult.OK; }); AcceptButton=usePlan;
         timeline.SelectionChanged+=delegate { LoadSelection(); }; timeline.BlocksChanged+=delegate { LoadSelection(); status.Text=AdvancedBlockRules.HasConflict(blocks,timeline.Selected,timeline.Selected)?"Move this block away from the overlapping block.":"Block moved. Save when the week looks right."; status.ForeColor=AdvancedBlockRules.HasConflict(blocks,timeline.Selected,timeline.Selected)?Color.FromArgb(178,73,61):Color.FromArgb(76,100,91); };
         activity.KeyDown+=delegate(object sender,KeyEventArgs e) { if(e.KeyCode==Keys.Enter) { AddOrUpdate(); e.SuppressKeyPress=true; } };
+        allowedApps.KeyDown+=delegate(object sender,KeyEventArgs e) { if(e.KeyCode==Keys.Enter) { AddOrUpdate(); e.SuppressKeyPress=true; } };
     }
     DateTimePicker TimePicker(int x,int y) { return new DateTimePicker { Location=new Point(x,y),Size=new Size(102,29),Format=DateTimePickerFormat.Custom,CustomFormat="h:mm tt",ShowUpDown=true,Value=DateTime.Today.AddHours(9) }; }
     Label LabelAt(Control parent,string text,int x,int y,int w,int h,float size) { Label label=new Label { Text=text,Location=new Point(x,y),Size=new Size(w,h),Font=new Font("Segoe UI",size),ForeColor=ink }; parent.Controls.Add(label); return label; }
@@ -174,17 +190,17 @@ public sealed class AdvancedPlanEditorForm : Form {
     static void Round(Control control,int radius) { Action apply=delegate { if(control.Width<2||control.Height<2)return; GraphicsPath path=new GraphicsPath(); int d=radius*2; path.AddArc(0,0,d,d,180,90); path.AddArc(control.Width-d-1,0,d,d,270,90); path.AddArc(control.Width-d-1,control.Height-d-1,d,d,0,90); path.AddArc(0,control.Height-d-1,d,d,90,90); path.CloseFigure(); Region old=control.Region; control.Region=new Region(path); if(old!=null)old.Dispose(); path.Dispose(); }; control.Resize+=delegate { apply(); }; if(control.IsHandleCreated)apply(); else control.HandleCreated+=delegate { apply(); }; }
     void LoadSelection() {
         AdvancedBlock selected=timeline.Selected; if(selected==null) { delete.Visible=false; addOrUpdate.Text="Add block"; return; }
-        loadingSelection=true; day.SelectedIndex=AdvancedBlockRules.DayToRow(selected.Day); start.Value=DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(selected.Start)); end.Value=DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(selected.End)); activity.Text=selected.Activity; loadingSelection=false; delete.Visible=true; addOrUpdate.Text="Update";
+        loadingSelection=true; day.SelectedIndex=AdvancedBlockRules.DayToRow(selected.Day); start.Value=DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(selected.Start)); end.Value=DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(selected.End)); activity.Text=selected.Activity; allowedApps.Text=selected.AllowedApps; loadingSelection=false; delete.Visible=true; addOrUpdate.Text="Update";
     }
-    void ClearSelection() { timeline.SelectBlock(null); activity.Clear(); day.SelectedIndex=0; start.Value=DateTime.Today.AddHours(9); end.Value=DateTime.Today.AddHours(10); status.Text="Choose a day, start, end, and activity."; status.ForeColor=Color.FromArgb(76,100,91); activity.Focus(); }
+    void ClearSelection() { timeline.SelectBlock(null); activity.Clear(); allowedApps.Clear(); day.SelectedIndex=0; start.Value=DateTime.Today.AddHours(9); end.Value=DateTime.Today.AddHours(10); status.Text="Choose a day, time, purpose, and optional app matching words."; status.ForeColor=Color.FromArgb(76,100,91); activity.Focus(); }
     void AddOrUpdate() {
         if(loadingSelection)return; int startMinutes=(int)start.Value.TimeOfDay.TotalMinutes, endMinutes=(int)Math.Min(1440,(end.Value-DateTime.Today).TotalMinutes); if(endMinutes==0)endMinutes=1440;
         if(string.IsNullOrWhiteSpace(activity.Text)) { ShowProblem("Name what this block is for."); return; }
         if(endMinutes<=startMinutes) { ShowProblem("The end must be later than the start."); return; }
-        AdvancedBlock selected=timeline.Selected; AdvancedBlock candidate=new AdvancedBlock { WeekStart=weekStart,Day=AdvancedBlockRules.RowToDay(day.SelectedIndex),Start=AdvancedBlockRules.Time(startMinutes),End=AdvancedBlockRules.Time(endMinutes),Activity=activity.Text.Trim() };
+        AdvancedBlock selected=timeline.Selected; AdvancedBlock candidate=new AdvancedBlock { WeekStart=weekStart,Day=AdvancedBlockRules.RowToDay(day.SelectedIndex),Start=AdvancedBlockRules.Time(startMinutes),End=AdvancedBlockRules.Time(endMinutes),Activity=activity.Text.Trim(),AllowedApps=AdvancedBlockRules.NormalizeAllowedApps(allowedApps.Text) };
         if(AdvancedBlockRules.HasConflict(blocks,candidate,selected)) { ShowProblem("That time overlaps another block on "+AdvancedBlockRules.DayName(candidate.Day)+"."); return; }
         if(selected==null) { blocks.Add(candidate); timeline.SelectBlock(candidate); status.Text="Block added. You can drag it on the timeline."; }
-        else { selected.Day=candidate.Day; selected.Start=candidate.Start; selected.End=candidate.End; selected.Activity=candidate.Activity; timeline.Invalidate(); status.Text="Block updated."; }
+        else { selected.Day=candidate.Day; selected.Start=candidate.Start; selected.End=candidate.End; selected.Activity=candidate.Activity; selected.AllowedApps=candidate.AllowedApps; timeline.Invalidate(); status.Text="Block updated."; }
         status.ForeColor=Color.FromArgb(76,100,91);
     }
     void DeleteSelected() { AdvancedBlock selected=timeline.Selected; if(selected==null)return; blocks.Remove(selected); ClearSelection(); timeline.Invalidate(); status.Text="Block removed."; }
