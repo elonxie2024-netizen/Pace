@@ -17,8 +17,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.5.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.5.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.6.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.6.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -72,6 +72,24 @@ public class TrackingEventRecord {
     public string End="";
     public string Detail="";
 }
+public sealed class HourMinuteInput : UserControl {
+    readonly NumericUpDown hours,minutes;
+    readonly int maximumMinutes,minimumMinutes;
+    bool loading;
+    public event EventHandler ValueChanged;
+    public HourMinuteInput(int minimumMinutes,int maximumMinutes,int value) {
+        this.minimumMinutes=minimumMinutes; this.maximumMinutes=Math.Max(minimumMinutes,maximumMinutes); Size=new Size(170,30); BackColor=Color.Transparent;
+        hours=new NumericUpDown { Location=new Point(0,1),Size=new Size(51,28),Minimum=0,Maximum=this.maximumMinutes/60 };
+        Label hoursLabel=new Label { Text="h",Location=new Point(55,5),Size=new Size(18,22),Font=new Font("Segoe UI",9) };
+        minutes=new NumericUpDown { Location=new Point(78,1),Size=new Size(51,28),Minimum=0,Maximum=59 };
+        Label minutesLabel=new Label { Text="m",Location=new Point(133,5),Size=new Size(24,22),Font=new Font("Segoe UI",9) };
+        Controls.Add(hours); Controls.Add(hoursLabel); Controls.Add(minutes); Controls.Add(minutesLabel);
+        hours.ValueChanged+=Changed; minutes.ValueChanged+=Changed; TotalMinutes=value;
+    }
+    void Changed(object sender,EventArgs e) { if(loading)return; loading=true; int maxMinute=hours.Value==(decimal)(maximumMinutes/60)?maximumMinutes%60:59; minutes.Maximum=maxMinute; if(minutes.Value>minutes.Maximum)minutes.Value=minutes.Maximum; loading=false; if(ValueChanged!=null)ValueChanged(this,EventArgs.Empty); }
+    public int TotalMinutes { get { return (int)hours.Value*60+(int)minutes.Value; } set { loading=true; int clean=Math.Max(0,Math.Min(maximumMinutes,value)); hours.Value=clean/60; minutes.Maximum=hours.Value==(decimal)(maximumMinutes/60)?maximumMinutes%60:59; minutes.Value=Math.Min((int)minutes.Maximum,clean%60); loading=false; } }
+    public bool IsValid { get { return TotalMinutes>=minimumMinutes && TotalMinutes<=maximumMinutes; } }
+}
 public sealed class BreakScreen : Form {
     readonly Label title, timerLabel, note;
     readonly Button cancel, offscreen, continueButton;
@@ -119,6 +137,8 @@ public class Settings {
     public bool AdvancedModesMigrated;
     public List<AdvancedBlock> Blocks = new List<AdvancedBlock>();
     public int Interval = 20, BreakMinutes = 5;
+    public int PeriodicWrapMinutes = 1, ClosingWarningMinutes = 3;
+    public int MismatchGraceMinutes = 1, MismatchSnoozeMinutes = 5;
     public int AlertVolume = 85;
     public DateTime BreakUntil = DateTime.MinValue;
     public bool BreakWaiting;
@@ -142,8 +162,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.5";
-    const double ActivityMismatchGraceSeconds=15;
+    const string PaceVersion="0.2.6";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -164,8 +183,7 @@ public class ScreenTime : Form {
     bool sessionLocked,sessionSuspended,trackingSessionEnded;
     NumericUpDown[] planHours = new NumericUpDown[7];
     NumericUpDown[] planMinutes = new NumericUpDown[7];
-    NumericUpDown breakMinutes;
-    ComboBox interval;
+    HourMinuteInput interval,breakMinutes,periodicWrap,closingWarning,mismatchGrace,mismatchSnooze;
     ComboBox planMode;
     AdvancedSchedulePreview blockPreview;
     Button editBlocks;
@@ -196,7 +214,7 @@ public class ScreenTime : Form {
     ActivityChart activityChart;
     ComboBox activityRange;
     Label activitySummary;
-    Label trackingHealthTitle,trackingHealthDetail,trackingLaunchStatus;
+    Label trackingHealthTitle,trackingHealthDetail,trackingLaunchStatus,settingsStatus;
     ListBox trackingEvents;
     Button enableStartup;
     string foregroundName="";
@@ -252,11 +270,6 @@ public class ScreenTime : Form {
         editBlocks=ButtonAt(weekly,"Edit blocks",660,55,148,38,delegate { OpenAdvancedEditor(); }); editBlocks.Visible=false;
         advancedHint=AddLabel(weekly,"",660,103,148,68,9); advancedHint.ForeColor=Color.FromArgb(76,100,91); advancedHint.Visible=false;
         planMode.SelectedIndexChanged+=delegate { UpdatePlanModeUI(); };
-        AddLabel(weekly,"Remind every",18,198,110,25,10);
-        interval=new ComboBox { Location=new Point(129,194),Size=new Size(70,28),DropDownStyle=ComboBoxStyle.DropDownList }; interval.Items.AddRange(new object[]{15,20,30}); interval.SelectedItem=state.Interval; weekly.Controls.Add(interval);
-        AddLabel(weekly,"min        Break",207,198,120,25,10);
-        breakMinutes=new NumericUpDown { Location=new Point(332,194),Size=new Size(65,28),Minimum=1,Maximum=60,Value=state.BreakMinutes }; weekly.Controls.Add(breakMinutes);
-        AddLabel(weekly,"min",406,198,45,25,10);
         ButtonAt(weekly,"Save this week",660,190,148,36,delegate { SaveWeekPlan(); });
         ButtonAt(weekly,"Copy previous week",465,190,180,36,delegate { CopyPreviousWeek(); });
         TabPage log=new TabPage("Time & reasons") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(log);
@@ -269,14 +282,18 @@ public class ScreenTime : Form {
         activityChart=new ActivityChart { Location=new Point(18,98),Size=new Size(385,154) }; activity.Controls.Add(activityChart);
         activityList=new ListBox { Location=new Point(420,98),Size=new Size(388,154),BorderStyle=BorderStyle.None,HorizontalScrollbar=true,BackColor=Color.FromArgb(252,251,247) }; activity.Controls.Add(activityList);
         activityRange.SelectedIndexChanged+=delegate { RefreshActivities(); };
-        TabPage alerts=new TabPage("Reminders & sound") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(alerts);
-        AddLabel(alerts,"A clearer reminder, even when you are busy.",18,18,790,35,16);
-        AddLabel(alerts,"Three distinct chimes. Adjust their volume here, then try a reminder.",18,62,790,30,11);
-        AddLabel(alerts,"Alert volume",18,112,125,28,11);
-        alertVolume=new NumericUpDown { Location=new Point(150,108),Size=new Size(75,28),Minimum=0,Maximum=100,Value=state.AlertVolume }; alerts.Controls.Add(alertVolume);
-        AddLabel(alerts,"%",233,112,30,28,11);
-        alertVolume.ValueChanged+=delegate { state.AlertVolume=(int)alertVolume.Value; Save(); };
-        AddLabel(alerts,"Windows volume and mute still apply. The corner bar stays visible when you close this window.",18,168,790,50,10);
+        TabPage alerts=new TabPage("Settings") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(alerts);
+        AddLabel(alerts,"Timing and sound",18,10,790,30,16);
+        Label timingHelp=AddLabel(alerts,"Every user-facing duration uses hours and minutes. Saved values apply to new reminders and breaks.",18,39,790,24,9); timingHelp.ForeColor=Color.FromArgb(91,108,100);
+        AddLabel(alerts,"Break reminder frequency",18,73,205,25,9); interval=new HourMinuteInput(1,720,state.Interval) { Location=new Point(230,68) }; alerts.Controls.Add(interval);
+        AddLabel(alerts,"Break length",18,115,205,25,9); breakMinutes=new HourMinuteInput(1,240,state.BreakMinutes) { Location=new Point(230,110) }; alerts.Controls.Add(breakMinutes);
+        AddLabel(alerts,"Wrap-up before a break",18,157,205,25,9); periodicWrap=new HourMinuteInput(1,120,state.PeriodicWrapMinutes) { Location=new Point(230,152) }; alerts.Controls.Add(periodicWrap);
+        AddLabel(alerts,"Screen-time ending warning",420,73,210,25,9); closingWarning=new HourMinuteInput(1,240,state.ClosingWarningMinutes) { Location=new Point(638,68) }; alerts.Controls.Add(closingWarning);
+        AddLabel(alerts,"App mismatch grace",420,115,210,25,9); mismatchGrace=new HourMinuteInput(1,60,state.MismatchGraceMinutes) { Location=new Point(638,110) }; alerts.Controls.Add(mismatchGrace);
+        AddLabel(alerts,"Mismatch reminder snooze",420,157,210,25,9); mismatchSnooze=new HourMinuteInput(1,240,state.MismatchSnoozeMinutes) { Location=new Point(638,152) }; alerts.Controls.Add(mismatchSnooze);
+        AddLabel(alerts,"Alert volume",18,211,100,25,9); alertVolume=new NumericUpDown { Location=new Point(121,206),Size=new Size(65,28),Minimum=0,Maximum=100,Value=state.AlertVolume }; alerts.Controls.Add(alertVolume); AddLabel(alerts,"%",191,211,25,25,9);
+        settingsStatus=AddLabel(alerts,"",225,209,420,27,9); settingsStatus.ForeColor=Color.FromArgb(76,100,91);
+        ButtonAt(alerts,"Save settings",660,202,148,36,delegate { SaveTimingSettings(); });
         TabPage health=new TabPage("Tracking health") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(health);
         trackingHealthTitle=AddLabel(health,"● Tracking now",18,16,575,30,15); trackingHealthTitle.Font=new Font("Segoe UI Semibold",15); trackingHealthTitle.ForeColor=green;
         trackingHealthDetail=AddLabel(health,"",18,49,575,42,10); trackingHealthDetail.ForeColor=Color.FromArgb(76,100,91);
@@ -374,8 +391,13 @@ public class ScreenTime : Form {
         int[] values=new int[7]; for(int i=0;i<7;i++)values[i]=(int)planHours[i].Value*60+(int)planMinutes[i].Value;
         state.SetWeek(selectedWeek,values); WeeklyPlan week=state.GetWeek(selectedWeek); week.Advanced=advanced; state.AdvancedPlan=advanced; SaveBlocks();
         state.PlanChanges.Add(new PlanChange { WeekStart=Settings.Monday(selectedWeek).ToString("yyyy-MM-dd"), ChangedAt=DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Summary=advanced?"Advanced plan saved: "+pendingBlocks.Count+" blocks, "+pendingBlocks.FindAll(b=>AdvancedBlockRules.HasActivityRules(b)).Count+" with app cues":"Plan saved: "+FormatPlan(values) });
-        state.Interval=(int)interval.SelectedItem; state.BreakMinutes=(int)breakMinutes.Value; if(selectedWeek==Settings.Monday(DateTime.Now)) { day.Warned=false; day.Exhausted=false; }
+        if(selectedWeek==Settings.Monday(DateTime.Now)) { day.Warned=false; day.Exhausted=false; }
         Save(); LoadWeekEditor(); if(selectedWeek==Settings.Monday(DateTime.Now) && advanced && ActiveBlock==null && ExtraRemaining<=0)StartDailyShutdown(); else RefreshView();
+    }
+    void SaveTimingSettings() {
+        foreach(HourMinuteInput input in new[]{interval,breakMinutes,periodicWrap,closingWarning,mismatchGrace,mismatchSnooze})if(!input.IsValid) { settingsStatus.Text="Each duration must be at least 1m."; settingsStatus.ForeColor=Color.FromArgb(178,73,61); return; }
+        state.Interval=interval.TotalMinutes; state.BreakMinutes=breakMinutes.TotalMinutes; state.PeriodicWrapMinutes=periodicWrap.TotalMinutes; state.ClosingWarningMinutes=closingWarning.TotalMinutes; state.MismatchGraceMinutes=mismatchGrace.TotalMinutes; state.MismatchSnoozeMinutes=mismatchSnooze.TotalMinutes; state.AlertVolume=(int)alertVolume.Value;
+        settingsStatus.Text="Saved  ·  Ending warning: "+FormatDuration(state.ClosingWarningMinutes*60); settingsStatus.ForeColor=Color.FromArgb(76,100,91); Save(); RefreshView();
     }
     void CopyPreviousWeek() {
         DateTime previousDate=selectedWeek.AddDays(-7); WeeklyPlan previous=state.GetWeek(previousDate);
@@ -419,7 +441,7 @@ public class ScreenTime : Form {
     Button ButtonAt(Control p,string t,int x,int y,int w,int h,EventHandler a) { Button b=new Button { Text=t,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=green,ForeColor=Color.White,Cursor=Cursors.Hand,Font=new Font("Segoe UI Semibold",9) }; b.FlatAppearance.BorderSize=0; b.FlatAppearance.MouseOverBackColor=Color.FromArgb(76,145,121); b.FlatAppearance.MouseDownBackColor=Color.FromArgb(46,105,86); b.Click+=a; p.Controls.Add(b); Round(b,9); return b; }
     Settings ReadState(string path) { using(var file=File.OpenRead(path))return (Settings)new XmlSerializer(typeof(Settings)).Deserialize(file); }
     void NormalizeState() {
-        if(state==null || state.Weeks==null || state.Weeks.Exists(w=>w==null || w.Minutes==null || w.Minutes.Length!=7 || Array.Exists(w.Minutes,v=>v<0 || v>1440)) || (state.Interval!=15 && state.Interval!=20 && state.Interval!=30) || state.BreakMinutes<1 || state.BreakMinutes>60 || state.Days==null)throw new InvalidDataException();
+        if(state==null || state.Weeks==null || state.Weeks.Exists(w=>w==null || w.Minutes==null || w.Minutes.Length!=7 || Array.Exists(w.Minutes,v=>v<0 || v>1440)) || state.Interval<1 || state.Interval>720 || state.BreakMinutes<1 || state.BreakMinutes>240 || state.PeriodicWrapMinutes<1 || state.PeriodicWrapMinutes>120 || state.ClosingWarningMinutes<1 || state.ClosingWarningMinutes>240 || state.MismatchGraceMinutes<1 || state.MismatchGraceMinutes>60 || state.MismatchSnoozeMinutes<1 || state.MismatchSnoozeMinutes>240 || state.Days==null)throw new InvalidDataException();
         foreach(DayRecord savedDay in state.Days) { if(savedDay==null)throw new InvalidDataException(); savedDay.Used=Math.Max(0,savedDay.Used); savedDay.Extra=Math.Max(0,savedDay.Extra); savedDay.ExtraUsed=Math.Max(0,Math.Min(savedDay.Extra*60,savedDay.ExtraUsed)); savedDay.BlockUsed=Math.Max(0,savedDay.BlockUsed); savedDay.SinceReminder=Math.Max(0,savedDay.SinceReminder); savedDay.BreaksTaken=Math.Max(0,savedDay.BreaksTaken); if(savedDay.ActiveReason==null)savedDay.ActiveReason=""; if(savedDay.Reasons==null)savedDay.Reasons=new List<string>(); if(savedDay.Activities==null)savedDay.Activities=new List<ActivityRecord>(); savedDay.Activities.RemoveAll(a=>a==null || string.IsNullOrWhiteSpace(a.Name) || a.Seconds<0); foreach(ActivityRecord savedActivity in savedDay.Activities)if(string.IsNullOrEmpty(savedActivity.Category))savedActivity.Category=ActivityCategoryForLoaded(savedActivity.Name); if(savedDay.BlockActivities==null)savedDay.BlockActivities=new List<BlockActivityRecord>(); savedDay.BlockActivities.RemoveAll(a=>a==null || string.IsNullOrWhiteSpace(a.BlockKey) || string.IsNullOrWhiteSpace(a.BlockName) || string.IsNullOrWhiteSpace(a.Activity) || a.Seconds<0); }
         if(state.PlanChanges==null)state.PlanChanges=new List<PlanChange>(); if(state.Blocks==null)state.Blocks=new List<AdvancedBlock>();
         if(state.TrackingEvents==null)state.TrackingEvents=new List<TrackingEventRecord>();
@@ -552,7 +574,7 @@ public class ScreenTime : Form {
         string key=active.WeekStart+":"+active.Day+":"+active.Start+":"+active.End+":"+active.Activity+":"+active.AllowedApps+":"+current.ToLowerInvariant();
         if(key!=mismatchKey) { HideFocusReminder(); if(key!=mismatchSnoozeKey)mismatchSnoozedUntil=DateTime.MinValue; mismatchKey=key; mismatchBlock=active.Activity; mismatchActivity=current; mismatchSeconds=0; }
         mismatchSeconds+=Math.Max(0,elapsed);
-        if(mismatchSeconds>=ActivityMismatchGraceSeconds && DateTime.UtcNow>=mismatchSnoozedUntil && (focusToast==null || focusToast.IsDisposed) && !cleanupActive)ShowFocusReminder();
+        if(mismatchSeconds>=state.MismatchGraceMinutes*60 && DateTime.UtcNow>=mismatchSnoozedUntil && (focusToast==null || focusToast.IsDisposed) && !cleanupActive)ShowFocusReminder();
     }
     void AddBlockActivity(AdvancedBlock block,string activity,bool matched,double seconds) {
         if(block==null || string.IsNullOrWhiteSpace(activity) || seconds<=0)return;
@@ -563,14 +585,14 @@ public class ScreenTime : Form {
     }
     void ClearBlockMismatch() { mismatchKey=""; mismatchBlock=""; mismatchActivity=""; mismatchSeconds=0; HideFocusReminder(); }
     void HideFocusReminder() { Form current=focusToast; focusToast=null; if(current!=null && !current.IsDisposed)current.Close(); }
-    void DismissFocusReminder() { mismatchSnoozeKey=mismatchKey; mismatchSnoozedUntil=DateTime.UtcNow.AddMinutes(5); HideFocusReminder(); RefreshView(); }
+    void DismissFocusReminder() { mismatchSnoozeKey=mismatchKey; mismatchSnoozedUntil=DateTime.UtcNow.AddMinutes(state.MismatchSnoozeMinutes); HideFocusReminder(); RefreshView(); }
     void ShowFocusReminder() {
         focusToast=new Reminder { Text="Outside this block",ClientSize=new Size(438,194),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=Color.FromArgb(250,244,226) };
         Round(focusToast,14);
         Label heading=AddLabel(focusToast,"A GENTLE COURSE CHECK",16,12,406,28,13); heading.ForeColor=Color.FromArgb(126,83,38);
         AddLabel(focusToast,"This block is for "+mismatchBlock+".",16,43,406,27,11);
         Label current=AddLabel(focusToast,mismatchActivity+" does not match the apps or sites you planned.",16,73,406,58,10); current.AutoEllipsis=true;
-        ButtonAt(focusToast,"Dismiss for 5 min",122,145,194,delegate { DismissFocusReminder(); });
+        ButtonAt(focusToast,"Dismiss for "+FormatDuration(state.MismatchSnoozeMinutes*60),122,145,194,delegate { DismissFocusReminder(); });
         focusToast.FormClosed+=delegate { alertSound.Stop(); };
         alertSound.Play(state.AlertVolume); UpdateCorner(); focusToast.Show(); PositionFocusReminder();
     }
@@ -648,20 +670,20 @@ public class ScreenTime : Form {
             double left=Budget-CurrentUsed;
             if(UsingAdvancedPlan && active!=null) {
                 double blockLeft=(DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(active.End))-DateTime.Now).TotalSeconds;
-                if(blockLeft<=600 && (!cleanupActive || !cleanupClosesPlan)) { day.Warned=true; BeginClosingCountdown(); }
-            } else if(HasPlan && left>0 && left<=600 && (!cleanupActive || !cleanupClosesPlan)) { day.Warned=true; BeginClosingCountdown(); }
+                if(blockLeft<=state.ClosingWarningMinutes*60 && (!cleanupActive || !cleanupClosesPlan)) { day.Warned=true; BeginClosingCountdown(); }
+            } else if(HasPlan && left>0 && left<=state.ClosingWarningMinutes*60 && (!cleanupActive || !cleanupClosesPlan)) { day.Warned=true; BeginClosingCountdown(); }
             if(HasPlan && left<=0 && !day.Exhausted) { day.Exhausted=true; day.BreakEarned=false; StartDailyShutdown(); }
             else if(tracking && !cleanupActive && day.SinceReminder>=state.Interval*60) { day.SinceReminder=0; BeginPeriodicCleanup(); }
         }
         if(breakFinished) { day.BreakEarned=true; day.SinceReminder=0; alertSound.Play(state.AlertVolume); Save(); }
     }
     void BeginPeriodicCleanup() {
-        HideFocusReminder(); mismatchSeconds=0; StopCleanup(); cleanupActive=true; cleanupClosesPlan=false; cleanupUntil=DateTime.UtcNow.AddSeconds(60); cleanupLastPing=60;
+        HideFocusReminder(); mismatchSeconds=0; StopCleanup(); cleanupActive=true; cleanupClosesPlan=false; cleanupUntil=DateTime.UtcNow.AddMinutes(state.PeriodicWrapMinutes); cleanupLastPing=state.PeriodicWrapMinutes*60;
         toast=new Reminder { Text="Wrap up",ClientSize=new Size(438,174),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=Color.FromArgb(239,246,239) };
         Round(toast,14);
         AddLabel(toast,"TIME TO WRAP UP",16,12,406,32,15);
         AddLabel(toast,"Finish what you're doing, then a break will begin automatically.",16,52,406,40,11);
-        cleanupLabel=AddLabel(toast,"Break begins in: 01:00",16,92,406,25,13);
+        cleanupLabel=AddLabel(toast,"Break begins in: "+CornerBar.Countdown(state.PeriodicWrapMinutes*60),16,92,406,25,13);
         ButtonAt(toast,"Cancel break",24,126,188,delegate { CancelCleanup(); });
         ButtonAt(toast,"Start break",226,126,188,delegate { StartBreak(); });
         StartCleanupTimer();
@@ -733,7 +755,7 @@ public class ScreenTime : Form {
         if(restoreDailyShutdown && breakScreen!=null)breakScreen.Hide();
         if(!restoreDailyShutdown) { Show(); WindowState=FormWindowState.Normal; Activate(); }
         if(!HasPlan) { tabs.SelectedIndex=0; weekPicker.SelectedIndex=0; MessageBox.Show("Make a plan for this week first. Your usage is already being tracked.","Plan your week"); RestoreDailyShutdown(restoreDailyShutdown); return; }
-        if(Breaking || (CurrentUsed>=Budget && !day.BreakEarned && !state.DailyShutdown)) { MessageBox.Show("Take your "+state.BreakMinutes+" minute break first, then come back to add time.","A little breathing room"); RestoreDailyShutdown(restoreDailyShutdown); return; }
+        if(Breaking || (CurrentUsed>=Budget && !day.BreakEarned && !state.DailyShutdown)) { MessageBox.Show("Take your "+FormatDuration(state.BreakMinutes*60)+" break first, then come back to add time.","A little breathing room"); RestoreDailyShutdown(restoreDailyShutdown); return; }
         using(Form dialog=new Form { Text="More time, with intention",ClientSize=new Size(470,270),StartPosition=FormStartPosition.CenterParent,FormBorderStyle=FormBorderStyle.FixedDialog,MaximizeBox=false,MinimizeBox=false,Font=Font }) {
             Control content=dialog; Panel addTimeCard=null;
             if(restoreDailyShutdown) { dialog.FormBorderStyle=FormBorderStyle.None; dialog.WindowState=FormWindowState.Maximized; dialog.TopMost=true; dialog.ShowInTaskbar=false; dialog.StartPosition=FormStartPosition.CenterScreen; dialog.BackColor=Color.FromArgb(18,38,34); addTimeCard=new Panel { Size=new Size(470,270),BackColor=Color.FromArgb(29,57,49) }; dialog.Controls.Add(addTimeCard); content=addTimeCard; Round(addTimeCard,18); Action centerCard=delegate { addTimeCard.Location=new Point(Math.Max(0,(dialog.ClientSize.Width-addTimeCard.Width)/2),Math.Max(0,(dialog.ClientSize.Height-addTimeCard.Height)/2)); }; dialog.Resize+=delegate { centerCard(); }; dialog.Shown+=delegate { centerCard(); }; }
@@ -789,7 +811,7 @@ public class ScreenTime : Form {
         if(state.DailyShutdown)return "SCREEN TIME COMPLETE  ·  Add more time with a reason when you need it.";
         if(Breaking)return "BREAK IN PROGRESS  ·  Screen-time tracking is paused.";
         if(state.BreakWaiting || state.BreakOffscreen)return "OFFSCREEN TIME  ·  Continue when you are ready.";
-        if(UsingAdvancedPlan) { AdvancedBlock block=ActiveBlock; if(block!=null) { if(mismatchSeconds>=ActivityMismatchGraceSeconds)return "OUTSIDE THIS BLOCK  ·  "+mismatchActivity+" does not match "+block.Activity+"."; return "ACTIVE BLOCK  ·  "+block.Activity+"  ·  ends "+DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(block.End)).ToString("h:mm tt"); } if(ExtraRemaining>0)return "EXTRA TIME  ·  "+(string.IsNullOrWhiteSpace(day.ActiveReason)?"Use this time intentionally.":day.ActiveReason); DateTime? next=NextBlockStart; return next==null?"NO MORE BLOCKS THIS WEEK":"NEXT BLOCK  ·  "+next.Value.ToString("ddd h:mm tt"); }
+        if(UsingAdvancedPlan) { AdvancedBlock block=ActiveBlock; if(block!=null) { if(mismatchSeconds>=state.MismatchGraceMinutes*60)return "OUTSIDE THIS BLOCK  ·  "+mismatchActivity+" does not match "+block.Activity+"."; return "ACTIVE BLOCK  ·  "+block.Activity+"  ·  ends "+DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(block.End)).ToString("h:mm tt"); } if(ExtraRemaining>0)return "EXTRA TIME  ·  "+(string.IsNullOrWhiteSpace(day.ActiveReason)?"Use this time intentionally.":day.ActiveReason); DateTime? next=NextBlockStart; return next==null?"NO MORE BLOCKS THIS WEEK":"NEXT BLOCK  ·  "+next.Value.ToString("ddd h:mm tt"); }
         return "AUTO TRACKING  ·  Unlocked time counts. Lock with Win+L when you step away.";
     }
     void RefreshView() {
@@ -816,7 +838,7 @@ public class ScreenTime : Form {
         else if(cleanupActive) { next=CleanupSecondsLeft(); timerTitle=cleanupClosesPlan?"CLOSES IN":"BREAK IN"; }
         else { next=closingSoon?closing:periodic; timerTitle=closingSoon?"CLOSES IN":"NEXT BREAK"; }
         cornerBar.UpdateStatus(HasPlan,Budget,used,next,timerTitle);
-        if(mismatchSeconds>=ActivityMismatchGraceSeconds && mismatchBlock.Length>0)cornerBar.SetFocusMismatch(mismatchBlock,mismatchActivity); else cornerBar.SetReason(day.ActiveReason);
+        if(mismatchSeconds>=state.MismatchGraceMinutes*60 && mismatchBlock.Length>0)cornerBar.SetFocusMismatch(mismatchBlock,mismatchActivity); else cornerBar.SetReason(day.ActiveReason);
         cornerBar.SetTrackingHealth(!saveFailed);
         cornerBar.PlaceInCorner(Screen.PrimaryScreen.WorkingArea);
         cornerBar.SetDashboardOpen(Visible);

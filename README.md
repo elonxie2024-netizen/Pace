@@ -11,6 +11,7 @@ Pace is a small Windows desktop app for keeping a personal, trust-based screen-t
 - Includes visual advanced plans with draggable blocks for named activities and times
 - Lets advanced blocks name the apps or visible browser-tab words that fit, then gives a calm course-check warning and reports matched versus outside-block time
 - Keeps a local heartbeat and records starts, stops, locks, sleep, wake, and any interval when Pace was not tracking
+- Makes every user-facing timer configurable in hours and minutes from one Settings tab
 - Uses a full-screen end-of-day or between-block state while still allowing intentional extra time with a reason
 - Keeps the corner bar position, plans, usage, and reports across restarts
 
@@ -42,13 +43,13 @@ Run the app with:
 ## Daily use
 
 1. Start Pace. At the start of each week, make and save a plan for that dated week. You can also select next week to plan ahead, or edit a saved plan whenever needed.
-2. Choose a reminder interval: 15, 20, or 30 minutes. Set the break length if you want something other than the 5-minute default.
+2. Open **Settings** to choose the break-reminder frequency, break length, periodic wrap-up time, screen-time ending warning, activity-mismatch grace period, mismatch snooze, and alert volume. Every duration uses separate hours and minutes.
 3. Tracking starts automatically. Lock the computer when you leave it; ordinary idle time still counts so videos and controller games are included.
-4. When a periodic reminder appears, choose **Start break** immediately or **Cancel break**. If you leave it alone, Pace gives you a one-minute wrap-up and then starts the break automatically.
-5. When the 10-minute closing warning appears, finish what you are doing before the day or block ends. If you still need time afterward, choose **Add more time**, select hours and minutes, and write a reason. That reason remains visible on the corner bar while the extra-time session is active.
+4. When a periodic reminder appears, choose **Start break** immediately or **Cancel break**. If you leave it alone, Pace uses your configured wrap-up time and then starts the break automatically.
+5. When the closing warning appears—3 minutes before the end by default—finish what you are doing before the day or block ends. If you still need time afterward, choose **Add more time**, select hours and minutes, and write a reason. That reason remains visible on the corner bar while the extra-time session is active.
 6. Press **Win+L** when stepping away. A timed break continues while Windows is locked and waits for **Continue** after the timer finishes.
 
-For an activity-aware advanced block, open **Edit blocks** and enter matching words under **Apps or visible tab words**. For example, a Homework block could use `Word, Canvas, Google Docs`. Pace waits 15 seconds before showing a mismatch so ordinary window switching does not create noise. The warning can be dismissed for five minutes, and the time is still shown in **Where time went**. Leaving the matching field blank keeps the block unrestricted.
+For an activity-aware advanced block, open **Edit blocks** and enter matching words under **Apps or visible tab words**. For example, a Homework block could use `Word, Canvas, Google Docs`. Pace waits for the grace period configured in **Settings** before showing a mismatch. The reminder uses the configured snooze duration, and the time is still shown in **Where time went**. Leaving the matching field blank keeps the block unrestricted.
 
 Closing the main window minimizes Pace to the notification area and keeps tracking. Use the notification-area menu to reopen the window or choose **Exit**. **Exit** stops tracking and closes the app.
 

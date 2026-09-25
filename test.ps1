@@ -45,6 +45,15 @@ try {
     $hours[0].Value = 2
     Assert $minuteInputs[0].Enabled 'Minutes must be enabled again below 24 hours'
 
+    $intervalInput = Field 'interval'; $breakInput = Field 'breakMinutes'; $wrapInput = Field 'periodicWrap'; $closingInput = Field 'closingWarning'; $graceInput = Field 'mismatchGrace'; $snoozeInput = Field 'mismatchSnooze'
+    Assert ($closingInput.TotalMinutes -eq 3) 'The default screen-time ending warning must be 3m'
+    $intervalInput.TotalMinutes=75; $breakInput.TotalMinutes=90; $wrapInput.TotalMinutes=7; $closingInput.TotalMinutes=3; $graceInput.TotalMinutes=2; $snoozeInput.TotalMinutes=75
+    (Field 'alertVolume').Value=64; Call 'SaveTimingSettings'
+    Assert ($state.Interval -eq 75 -and $state.BreakMinutes -eq 90 -and $state.PeriodicWrapMinutes -eq 7 -and $state.ClosingWarningMinutes -eq 3 -and $state.MismatchGraceMinutes -eq 2 -and $state.MismatchSnoozeMinutes -eq 75 -and $state.AlertVolume -eq 64) 'Settings must save every user-facing duration independently'
+    $durationFlags = [Reflection.BindingFlags]'NonPublic,Instance'
+    $minutePart = $snoozeInput.GetType().GetField('minutes',$durationFlags).GetValue($snoozeInput)
+    Assert ($minutePart.Value -eq 15 -and $minutePart.Maximum -le 59) 'Custom durations must split 1h 15m into hours and a minute component below 60'
+
     $gapMethod = $app.GetType().GetMethod('RecordPreviousTrackingGap',$flags)
     $gapNow = [datetime]::Now
     $state.TrackingSessionOpen = $true; $state.LastHeartbeat = $gapNow.AddHours(-2).ToString('o')
@@ -160,7 +169,7 @@ try {
     Assert ($day.Used -eq 60) 'Locked time must not accrue'
     Assert ($day.SinceReminder -eq 60) 'Locked time must not advance next-break countdown'
     Call 'StartBreak'
-    Assert ($state.BreakUntil -gt [datetime]::UtcNow) 'Starting break must set a future timer'
+    Assert ([Math]::Abs(($state.BreakUntil - [datetime]::UtcNow).TotalMinutes - $state.BreakMinutes) -lt 0.1) 'Starting break must use the custom break duration'
     Assert ($day.SinceReminder -eq 0 -and $corner.AccessibleDescription -like '*BREAK LEFT:*') 'Starting break must reset reminder interval and show break countdown'
     Elapsed 60 $false
     Assert ($day.Used -eq 60) 'Full-screen break must stop screen-time accounting'
@@ -168,9 +177,9 @@ try {
     Assert ($day.Used -eq 60) 'Locked time during a break must not accrue'
     $state.BreakUntil = [datetime]::MinValue
     $budget = $app.GetType().GetProperty('Budget', $flags).GetValue($app, $null)
-    $day.Used = $budget - 601
+    $day.Used = $budget - ($state.ClosingWarningMinutes * 60 + 1)
     Elapsed 2 $false
-    Assert $day.Warned 'Crossing ten minutes remaining must trigger warning'
+    Assert $day.Warned 'Crossing the custom 3m ending-warning point must trigger warning'
     Assert ((Field 'cleanupActive') -and (Field 'cleanupClosesPlan')) 'Closing warnings must keep a live countdown to shutdown'
     Call 'CancelCleanup'
     Assert (Field 'cleanupActive') 'A closing countdown must remain visible instead of behaving like a cancelable periodic break'
@@ -210,6 +219,7 @@ try {
     $periodicButtons[0].PerformClick()
     Assert (-not (Field 'cleanupActive')) 'Cancel break must dismiss the periodic wrap-up without starting a break'
     Call 'BeginPeriodicCleanup'
+    Assert ([Math]::Abs(((Field 'cleanupUntil')-[datetime]::UtcNow).TotalMinutes - $state.PeriodicWrapMinutes) -lt 0.1) 'The periodic wrap-up countdown must use its custom duration'
     $startNow = @((Field 'toast').Controls | Where-Object { $_ -is [Windows.Forms.Button] -and $_.Text -eq 'Start break' })[0]
     $startNow.PerformClick()
     Assert ((Field 'state').BreakUntil -gt [datetime]::UtcNow -and -not (Field 'cleanupActive')) 'Start break must begin the full-screen break immediately'
@@ -225,15 +235,15 @@ try {
     Assert ($day.BlockUsed -eq 60 -and $day.Used -eq 60 -and $app.GetType().GetProperty('CurrentUsed',$flags).GetValue($app,$null) -eq 60) 'Advanced blocks must count both current-block usage and total reporting usage'
     $awareness = $app.GetType().GetMethod('UpdateBlockAwareness',$flags)
     $awareness.Invoke($app,@('Microsoft Word - Essay',[double]20))
-    $awareness.Invoke($app,@('YouTube - Microsoft Edge',[double]16))
+    $awareness.Invoke($app,@('YouTube - Microsoft Edge',[double]121))
     Assert ($day.BlockActivities.Count -eq 2 -and $day.BlockActivities[0].Matched -and -not $day.BlockActivities[1].Matched) 'Activity-aware blocks must record matched and outside-block time separately'
     Call 'RefreshView'
     Assert ($corner.AccessibleDescription -like '*Focus cue:*All-day test block*YouTube*') 'A mismatch lasting beyond the grace period must appear on the persistent corner bar'
     $focusToast = Field 'focusToast'
     $focusButtons = @($focusToast.Controls | Where-Object { $_ -is [Windows.Forms.Button] })
-    Assert ($focusButtons.Count -eq 1 -and $focusButtons[0].Text -eq 'Dismiss for 5 min') 'The mismatch reminder must have one clear action with a real snooze effect'
+    Assert ($focusButtons.Count -eq 1 -and $focusButtons[0].Text -eq 'Dismiss for 1h 15m') 'The mismatch reminder must show its custom snooze duration with hours and minutes'
     $focusButtons[0].PerformClick()
-    Assert ($null -eq (Field 'focusToast') -and (Field 'mismatchSnoozedUntil') -gt [datetime]::UtcNow) 'Dismissing a mismatch must snooze its pop-up for five minutes'
+    Assert ($null -eq (Field 'focusToast') -and [Math]::Abs(((Field 'mismatchSnoozedUntil') - [datetime]::UtcNow).TotalMinutes - $state.MismatchSnoozeMinutes) -lt 0.1) 'Dismissing a mismatch must use the custom snooze duration'
     $awareness.Invoke($app,@('Canvas - Assignments',[double]1))
     Call 'RefreshView'
     Assert ($corner.AccessibleDescription -notlike 'Focus cue:*') 'Returning to a matching app must clear the corner mismatch immediately'
@@ -301,6 +311,7 @@ try {
     Assert (-not $loaded.GetWeek($nextWeek).Advanced) 'Advanced plan mode must stay attached to its own week'
     Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason' -and $loaded.Days[0].ActiveReason -eq 'Testing visible extra-time reason') 'Usage, extra time, and reasons must survive reload'
     Assert ($loaded.AlertVolume -eq 73) 'Reminder volume must survive reload'
+    Assert ($loaded.Interval -eq 75 -and $loaded.BreakMinutes -eq 90 -and $loaded.PeriodicWrapMinutes -eq 7 -and $loaded.ClosingWarningMinutes -eq 3 -and $loaded.MismatchGraceMinutes -eq 2 -and $loaded.MismatchSnoozeMinutes -eq 75) 'All custom timing settings must survive reload'
     Call 'Save'
     Set-Content -LiteralPath (Join-Path $tempFolder 'state.xml') -Value '<damaged>'
     Call 'LoadState'
@@ -323,7 +334,7 @@ try {
     $restartedCorner = Field 'cornerBar'
     Assert ($restarted.CornerPositioned -and $restartedCorner.Left -eq $savedX -and $restartedCorner.Top -eq $savedY) 'A user-positioned corner bar must return to its saved location after restart'
     Assert ($restarted.TrackingSessionOpen -and ($restarted.TrackingEvents | Where-Object { $_.Kind -eq 'Stopped' }).Count -ge 1) 'A clean exit and restart must preserve tracking continuity events and open a new session'
-    Write-Host 'PASS: planning, activity-aware blocks, tracking continuity, reporting, recovery, positioning, accounting, breaks, reminders, and persistence.'
+    Write-Host 'PASS: planning, customizable timing, activity-aware blocks, tracking continuity, reporting, recovery, positioning, accounting, breaks, reminders, and persistence.'
 } finally {
     if ($app) { $app.Dispose() }
     # Delete only the known test files and empty directory; never touch real application data.
