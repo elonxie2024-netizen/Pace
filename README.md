@@ -53,7 +53,7 @@ For an activity-aware advanced block, open **Edit blocks** and enter matching wo
 
 Closing the main window minimizes Pace to the notification area and keeps tracking. Use the notification-area menu to reopen the window or choose **Exit**. **Exit** stops tracking and closes the app.
 
-The **Tracking health** tab confirms that the heartbeat is current, checks whether launch at sign-in points to the running Pace installation, and lists recent tracking events. If Pace was closed or stopped unexpectedly, the next launch records the unknown interval in both **Tracking health** and **Time & reasons**. Time in a tracking gap is identified as unknown and is never silently added to screen usage.
+The **Tracking health** tab confirms that the heartbeat is current, checks whether launch at sign-in points to the running Pace installation, and visualizes today's tracked, locked or sleeping, untracked, and unknown periods on a timeline. Recent events remain listed below it. If Pace was closed or stopped unexpectedly, the next launch records the unknown interval in both **Tracking health** and **Time & reasons**. Time in a tracking gap is identified as unknown and is never silently added to screen usage.
 
 ## Building the Windows installer
 

@@ -67,6 +67,21 @@ try {
     Assert (@((Field 'trackingEvents').Items | Where-Object { $_ -like '*NOT TRACKED*' }).Count -eq 2) 'Tracking health must list untracked intervals explicitly'
     Assert (@((Field 'history').Items | Where-Object { $_ -like '*not tracked*' }).Count -ge 1) 'Daily history must disclose tracking gaps instead of presenting incomplete data as complete'
     Assert ((Field 'trackingLaunchStatus').Text -like 'Launch at sign-in*') 'Tracking health must report whether launch at sign-in is working'
+    $timelineNow = [datetime]::Today.AddHours(7)
+    $timelineRecords = New-Object 'System.Collections.Generic.List[TrackingEventRecord]'
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=[datetime]::Today.AddHours(1).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Locked'; Start=[datetime]::Today.AddHours(2).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Unlocked'; Start=[datetime]::Today.AddHours(3).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Stopped'; Start=[datetime]::Today.AddHours(4).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Gap'; Start=[datetime]::Today.AddHours(4).ToString('o'); End=[datetime]::Today.AddHours(5).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=[datetime]::Today.AddHours(5).ToString('o') }))
+    $timelineModel = New-Object TrackingHealthTimeline
+    $timelineModel.SetData($timelineRecords,$timelineNow,$true,$false)
+    Assert ([Math]::Abs($timelineModel.TrackedSeconds-14400) -lt 1 -and [Math]::Abs($timelineModel.PausedSeconds-3600) -lt 1 -and [Math]::Abs($timelineModel.GapSeconds-3600) -lt 1) 'Tracking timeline must distinguish tracked, paused, and untracked intervals'
+    Assert ($timelineModel.AccessibleDescription -like '*tracked*locked or asleep*not tracked*') 'Tracking timeline must describe its visual data accessibly'
+    $healthTimeline = Field 'trackingTimeline'
+    Assert ($healthTimeline.AccessibleRole -eq [Windows.Forms.AccessibleRole]::Graphic -and $healthTimeline.Bottom -lt (Field 'trackingEvents').Top) 'Tracking timeline must fit above recent events without overlap'
+    $timelineModel.Dispose()
 
     $blockA = New-Object AdvancedBlock
     $blockA.WeekStart = $thisWeek.ToString('yyyy-MM-dd'); $blockA.Day = 1; $blockA.Start = '09:00'; $blockA.End = '10:00'; $blockA.Activity = 'School'; $blockA.AllowedApps = 'Word, Canvas, word'
@@ -334,7 +349,7 @@ try {
     $restartedCorner = Field 'cornerBar'
     Assert ($restarted.CornerPositioned -and $restartedCorner.Left -eq $savedX -and $restartedCorner.Top -eq $savedY) 'A user-positioned corner bar must return to its saved location after restart'
     Assert ($restarted.TrackingSessionOpen -and ($restarted.TrackingEvents | Where-Object { $_.Kind -eq 'Stopped' }).Count -ge 1) 'A clean exit and restart must preserve tracking continuity events and open a new session'
-    Write-Host 'PASS: planning, customizable timing, activity-aware blocks, tracking continuity, reporting, recovery, positioning, accounting, breaks, reminders, and persistence.'
+    Write-Host 'PASS: planning, customizable timing, activity-aware blocks, tracking continuity, health timeline, reporting, recovery, positioning, accounting, breaks, reminders, and persistence.'
 } finally {
     if ($app) { $app.Dispose() }
     # Delete only the known test files and empty directory; never touch real application data.

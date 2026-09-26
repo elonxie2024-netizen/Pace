@@ -17,8 +17,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.6.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.6.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.7.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.7.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -162,7 +162,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.6";
+    const string PaceVersion="0.2.7";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -216,6 +216,7 @@ public class ScreenTime : Form {
     Label activitySummary;
     Label trackingHealthTitle,trackingHealthDetail,trackingLaunchStatus,settingsStatus;
     ListBox trackingEvents;
+    TrackingHealthTimeline trackingTimeline;
     Button enableStartup;
     string foregroundName="";
     double foregroundSince;
@@ -299,7 +300,8 @@ public class ScreenTime : Form {
         trackingHealthDetail=AddLabel(health,"",18,49,575,42,10); trackingHealthDetail.ForeColor=Color.FromArgb(76,100,91);
         trackingLaunchStatus=AddLabel(health,"",18,96,575,28,10); trackingLaunchStatus.ForeColor=Color.FromArgb(91,108,100);
         enableStartup=ButtonAt(health,"Turn on launch at sign-in",610,20,198,38,delegate { if(startupItem!=null)startupItem.Checked=true; else SetStartWithWindows(true); RefreshTrackingHealth(); });
-        trackingEvents=new ListBox { Location=new Point(18,130),Size=new Size(790,122),BorderStyle=BorderStyle.None,HorizontalScrollbar=true,BackColor=Color.FromArgb(252,251,247) }; health.Controls.Add(trackingEvents);
+        trackingTimeline=new TrackingHealthTimeline { Location=new Point(18,120),Size=new Size(790,88) }; health.Controls.Add(trackingTimeline);
+        trackingEvents=new ListBox { Location=new Point(18,214),Size=new Size(790,38),BorderStyle=BorderStyle.None,HorizontalScrollbar=true,BackColor=Color.FromArgb(252,251,247) }; health.Controls.Add(trackingEvents);
         cornerBar=new CornerBar(); cornerBar.Icon=Icon; if(state.CornerPositioned)cornerBar.RestoreSavedPosition(state.CornerX,state.CornerY); cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartManualShutdown(); }; cornerBar.UserPositionChanged+=delegate { state.CornerPositioned=true; state.CornerX=cornerBar.Left; state.CornerY=cornerBar.Top; Save(); }; cornerBar.PositionReset+=delegate { state.CornerPositioned=false; Save(); };
         tray=new NotifyIcon { Icon=Icon??SystemIcons.Application,Text="Pace",Visible=true };
         ContextMenuStrip menu=new ContextMenuStrip();
@@ -798,6 +800,7 @@ public class ScreenTime : Form {
         trackingHealthTitle.Text=saveFailed?"● Tracking, but not saving":"● Tracking now"; trackingHealthTitle.ForeColor=saveFailed?Color.FromArgb(178,105,56):green;
         trackingHealthDetail.Text=(saveFailed?"Pace cannot save its heartbeat or usage. Check the Pace data-folder permissions.":"The heartbeat is current. Screen-time tracking is active.")+(gapToday>0?"  "+FormatDuration(gapToday)+" was not tracked today.":"  No tracking gaps today.");
         trackingLaunchStatus.Text=startup?"Launch at sign-in is on, so Pace can begin with Windows.":"Launch at sign-in is off. Pace cannot track until you open it."; trackingLaunchStatus.ForeColor=startup?Color.FromArgb(76,100,91):Color.FromArgb(157,96,48); enableStartup.Visible=!startup;
+        trackingTimeline.SetData(state.TrackingEvents,DateTime.Now,state.TrackingSessionOpen,sessionLocked||sessionSuspended);
         trackingEvents.BeginUpdate(); trackingEvents.Items.Clear();
         int first=Math.Max(0,state.TrackingEvents.Count-100); for(int i=state.TrackingEvents.Count-1;i>=first;i--)trackingEvents.Items.Add(TrackingEventLine(state.TrackingEvents[i]));
         if(trackingEvents.Items.Count==0)trackingEvents.Items.Add("No tracking events recorded yet."); trackingEvents.EndUpdate();
