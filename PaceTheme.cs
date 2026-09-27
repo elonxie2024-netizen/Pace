@@ -27,7 +27,7 @@ public static class PaceTheme {
     public static void Apply(Control root) {
         if(root is Form) { root.BackColor=Background; root.ForeColor=Text; ApplyTitleBar((Form)root); }
         if(root is TabPage || root is ListBox) { root.BackColor=Surface; root.ForeColor=Text; }
-        else if(root is ComboBox || root is NumericUpDown || root is TextBox || root is DateTimePicker) { root.BackColor=Input; root.ForeColor=Text; }
+        else if(root is ComboBox || root is NumericUpDown || root is TextBox || root is DateTimePicker) { root.BackColor=Input; root.ForeColor=Text; if(root is NumericUpDown)((NumericUpDown)root).TextAlign=HorizontalAlignment.Center; }
         else if(root is Button) {
             Button button=(Button)root; button.BackColor=Accent; button.ForeColor=ButtonText;
             if(button.FlatStyle==FlatStyle.Flat) { button.FlatAppearance.MouseOverBackColor=AccentHover; button.FlatAppearance.MouseDownBackColor=AccentDown; }

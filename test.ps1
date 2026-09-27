@@ -8,6 +8,7 @@ function Field($name) { $app.GetType().GetField($name, $flags).GetValue($app) }
 function Call($name) { $app.GetType().GetMethod($name, $flags).Invoke($app, @()) }
 function Elapsed([double]$seconds, [bool]$locked) { $app.GetType().GetMethod('ApplyElapsed', $flags).Invoke($app, @($seconds, $locked)) }
 function Assert($condition, $message) { if (-not $condition) { throw $message } }
+function Descendants($root) { foreach ($control in $root.Controls) { $control; if ($control.HasChildren) { Descendants $control } } }
 try {
     $app = New-Object ScreenTime -ArgumentList $tempFolder
     (Field 'timer').Stop()
@@ -53,6 +54,8 @@ try {
     $durationFlags = [Reflection.BindingFlags]'NonPublic,Instance'
     $minutePart = $snoozeInput.GetType().GetField('minutes',$durationFlags).GetValue($snoozeInput)
     Assert ($minutePart.Value -eq 15 -and $minutePart.Maximum -le 59) 'Custom durations must split 1h 15m into hours and a minute component below 60'
+    $numericInputs = @(Descendants $app | Where-Object { $_ -is [Windows.Forms.NumericUpDown] })
+    Assert ($numericInputs.Count -ge 20 -and @($numericInputs | Where-Object { $_.TextAlign -ne [Windows.Forms.HorizontalAlignment]::Center }).Count -eq 0) 'Every visible numeric input must center its value'
     if ($null -eq $app.BackgroundImage) {
         $testArt = New-Object Drawing.Bitmap -ArgumentList @((Join-Path $PSScriptRoot 'assets\pace-garden-fitted.png'))
         $app.GetType().GetField('originalArt',$flags).SetValue($app,$testArt)

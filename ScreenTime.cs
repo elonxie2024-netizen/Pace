@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.9.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.9.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.10.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.10.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -80,9 +80,9 @@ public sealed class HourMinuteInput : UserControl {
     public event EventHandler ValueChanged;
     public HourMinuteInput(int minimumMinutes,int maximumMinutes,int value) {
         this.minimumMinutes=minimumMinutes; this.maximumMinutes=Math.Max(minimumMinutes,maximumMinutes); Size=new Size(170,30); BackColor=Color.Transparent;
-        hours=new NumericUpDown { Location=new Point(0,1),Size=new Size(51,28),Minimum=0,Maximum=this.maximumMinutes/60 };
+        hours=new NumericUpDown { Location=new Point(0,1),Size=new Size(51,28),Minimum=0,Maximum=this.maximumMinutes/60,TextAlign=HorizontalAlignment.Center };
         Label hoursLabel=new Label { Text="h",Location=new Point(55,5),Size=new Size(18,22),Font=new Font("Segoe UI",9) };
-        minutes=new NumericUpDown { Location=new Point(78,1),Size=new Size(51,28),Minimum=0,Maximum=59 };
+        minutes=new NumericUpDown { Location=new Point(78,1),Size=new Size(51,28),Minimum=0,Maximum=59,TextAlign=HorizontalAlignment.Center };
         Label minutesLabel=new Label { Text="m",Location=new Point(133,5),Size=new Size(24,22),Font=new Font("Segoe UI",9) };
         Controls.Add(hours); Controls.Add(hoursLabel); Controls.Add(minutes); Controls.Add(minutesLabel);
         hours.ValueChanged+=Changed; minutes.ValueChanged+=Changed; TotalMinutes=value;
@@ -164,7 +164,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.9";
+    const string PaceVersion="0.2.10";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -363,7 +363,7 @@ public class ScreenTime : Form {
     void OpenUpdatePage() { try { Process.Start(updateUrl); } catch { MessageBox.Show("Open "+ReleasesUrl+" in your browser to download the update.","Pace updates"); } }
     Label AddLabel(Control parent,string text,int x,int y,int w,int h,float size) { Label l=new Label { Text=text,Location=new Point(x,y),Size=new Size(w,h),Font=new Font("Segoe UI",size),ForeColor=ink }; parent.Controls.Add(l); return l; }
     static void Round(Control control,int radius) { Action apply=delegate { if(control.Width<2 || control.Height<2)return; GraphicsPath path=new GraphicsPath(); int d=radius*2; path.AddArc(0,0,d,d,180,90); path.AddArc(control.Width-d-1,0,d,d,270,90); path.AddArc(control.Width-d-1,control.Height-d-1,d,d,0,90); path.AddArc(0,control.Height-d-1,d,d,90,90); path.CloseFigure(); Region old=control.Region; control.Region=new Region(path); if(old!=null)old.Dispose(); path.Dispose(); }; control.Resize+=delegate { apply(); }; if(control.IsHandleCreated)apply(); else control.HandleCreated+=delegate { apply(); }; }
-    void StyleInputs(Control root) { foreach(Control control in root.Controls) { if(control is ComboBox || control is NumericUpDown || control is TextBox) { control.BackColor=PaceTheme.Input; control.ForeColor=PaceTheme.Text; Round(control,7); } if(control.HasChildren)StyleInputs(control); } }
+    void StyleInputs(Control root) { foreach(Control control in root.Controls) { if(control is ComboBox || control is NumericUpDown || control is TextBox) { control.BackColor=PaceTheme.Input; control.ForeColor=PaceTheme.Text; if(control is NumericUpDown)((NumericUpDown)control).TextAlign=HorizontalAlignment.Center; Round(control,7); } if(control.HasChildren)StyleInputs(control); } }
     void SyncThemeColors() { ink=PaceTheme.Text; green=PaceTheme.Accent; cream=PaceTheme.Background; sage=PaceTheme.Card; }
     void LoadBackgroundArt() {
         string path=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","pace-garden-fitted.png");
@@ -799,8 +799,8 @@ public class ScreenTime : Form {
             Control content=dialog; Panel addTimeCard=null;
             if(restoreDailyShutdown) { dialog.FormBorderStyle=FormBorderStyle.None; dialog.WindowState=FormWindowState.Maximized; dialog.TopMost=true; dialog.ShowInTaskbar=false; dialog.StartPosition=FormStartPosition.CenterScreen; dialog.BackColor=Color.FromArgb(18,38,34); addTimeCard=new Panel { Size=new Size(470,270),BackColor=Color.FromArgb(29,57,49) }; dialog.Controls.Add(addTimeCard); content=addTimeCard; Round(addTimeCard,18); Action centerCard=delegate { addTimeCard.Location=new Point(Math.Max(0,(dialog.ClientSize.Width-addTimeCard.Width)/2),Math.Max(0,(dialog.ClientSize.Height-addTimeCard.Height)/2)); }; dialog.Resize+=delegate { centerCard(); }; dialog.Shown+=delegate { centerCard(); }; }
             AddLabel(content,"How much more time do you need?",20,18,430,30,13);
-            NumericUpDown addedHours=new NumericUpDown { Location=new Point(20,56),Minimum=0,Maximum=4,Value=0,Size=new Size(65,30) }; content.Controls.Add(addedHours); AddLabel(content,"hours",92,60,48,28,10);
-            NumericUpDown addedMinutes=new NumericUpDown { Location=new Point(148,56),Minimum=0,Maximum=59,Value=15,Increment=5,Size=new Size(65,30) }; content.Controls.Add(addedMinutes); AddLabel(content,"minutes",220,60,70,28,10);
+            NumericUpDown addedHours=new NumericUpDown { Location=new Point(20,56),Minimum=0,Maximum=4,Value=0,Size=new Size(65,30),TextAlign=HorizontalAlignment.Center }; content.Controls.Add(addedHours); AddLabel(content,"hours",92,60,48,28,10);
+            NumericUpDown addedMinutes=new NumericUpDown { Location=new Point(148,56),Minimum=0,Maximum=59,Value=15,Increment=5,Size=new Size(65,30),TextAlign=HorizontalAlignment.Center }; content.Controls.Add(addedMinutes); AddLabel(content,"minutes",220,60,70,28,10);
             addedHours.ValueChanged+=delegate { bool maximum=addedHours.Value==4; if(maximum)addedMinutes.Value=0; addedMinutes.Enabled=!maximum; }; Round(addedHours,7); Round(addedMinutes,7);
             AddLabel(content,"What would you like to finish? A reason is required.",20,102,430,28,10);
             TextBox reason=new TextBox { Location=new Point(20,136),Size=new Size(430,60),Multiline=true,MaxLength=500 }; content.Controls.Add(reason); Round(reason,7);
