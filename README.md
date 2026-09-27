@@ -12,6 +12,7 @@ Pace is a small Windows desktop app for keeping a personal, trust-based screen-t
 - Lets advanced blocks name the apps or visible browser-tab words that fit, then gives a calm course-check warning and reports matched versus outside-block time
 - Keeps a local heartbeat and records starts, stops, locks, sleep, wake, and any interval when Pace was not tracking
 - Makes every user-facing timer configurable in hours and minutes from one Settings tab
+- Includes a persistent dark mode for the dashboard, planning tools, charts, reminders, and corner bar
 - Uses a full-screen end-of-day or between-block state while still allowing intentional extra time with a reason
 - Keeps the corner bar position, plans, usage, and reports across restarts
 
@@ -43,7 +44,7 @@ Run the app with:
 ## Daily use
 
 1. Start Pace. At the start of each week, make and save a plan for that dated week. You can also select next week to plan ahead, or edit a saved plan whenever needed.
-2. Open **Settings** to choose the break-reminder frequency, break length, periodic wrap-up time, screen-time ending warning, activity-mismatch grace period, mismatch snooze, and alert volume. Every duration uses separate hours and minutes.
+2. Open **Settings** to choose the break-reminder frequency, break length, periodic wrap-up time, screen-time ending warning, activity-mismatch grace period, mismatch snooze, alert volume, and light or dark appearance. Every duration uses separate hours and minutes, and the appearance change is saved immediately.
 3. Tracking starts automatically. Lock the computer when you leave it; ordinary idle time still counts so videos and controller games are included.
 4. When a periodic reminder appears, choose **Start break** immediately or **Cancel break**. If you leave it alone, Pace uses your configured wrap-up time and then starts the break automatically.
 5. When the closing warning appears—3 minutes before the end by default—finish what you are doing before the day or block ends. If you still need time afterward, choose **Add more time**, select hours and minutes, and write a reason. That reason remains visible on the corner bar while the extra-time session is active.

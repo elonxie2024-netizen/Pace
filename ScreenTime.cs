@@ -10,6 +10,7 @@ using System.Text;
 using Microsoft.Win32;
 using System.Runtime.InteropServices;
 using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
 using System.Net;
 using System.Text.RegularExpressions;
 
@@ -17,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.8.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.8.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.9.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.9.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -140,6 +141,7 @@ public class Settings {
     public int PeriodicWrapMinutes = 1, ClosingWarningMinutes = 3;
     public int MismatchGraceMinutes = 1, MismatchSnoozeMinutes = 5;
     public int AlertVolume = 85;
+    public bool DarkMode;
     public DateTime BreakUntil = DateTime.MinValue;
     public bool BreakWaiting;
     public bool BreakOffscreen;
@@ -162,7 +164,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.8";
+    const string PaceVersion="0.2.9";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -170,7 +172,8 @@ public class ScreenTime : Form {
     readonly string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TrustScreenTime");
     string StatePath { get { return Path.Combine(folder,"state.xml"); } }
     string BackupPath { get { return Path.Combine(folder,"state.xml.backup"); } }
-    Label remaining, detail, status, trackingIndicator;
+    Label remaining, detail, status, trackingIndicator,brandLabel,heroLabel,subtitleLabel,timingHelp;
+    Panel todayCard;
     ProgressBar progress;
     Button rest, extra;
     ComboBox weekPicker;
@@ -210,6 +213,7 @@ public class ScreenTime : Form {
     readonly AlertSound alertSound=new AlertSound();
     bool cornerStarted;
     NumericUpDown alertVolume;
+    Button darkMode;
     ListBox activityList;
     ActivityChart activityChart;
     ComboBox activityRange;
@@ -224,6 +228,7 @@ public class ScreenTime : Form {
     string mismatchKey="", mismatchBlock="", mismatchActivity="", mismatchSnoozeKey="";
     double mismatchSeconds;
     DateTime mismatchSnoozedUntil=DateTime.MinValue;
+    Image originalArt;
     [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
@@ -243,22 +248,22 @@ public class ScreenTime : Form {
     public ScreenTime(string dataFolder) {
         if(dataFolder!=null)folder=dataFolder;
         Text="Pace"; ClientSize=new Size(1120,805); MinimumSize=new Size(1140,845);
-        BackColor=cream; ForeColor=ink; Font=new Font("Segoe UI",10); StartPosition=FormStartPosition.CenterScreen;
+        Font=new Font("Segoe UI",10); StartPosition=FormStartPosition.CenterScreen;
         try { Icon appIcon=Icon.ExtractAssociatedIcon(Application.ExecutablePath); if(appIcon!=null)Icon=(Icon)appIcon.Clone(); } catch { }
-        string art=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","pace-garden-fitted.png"); if(File.Exists(art)) { BackgroundImage=Image.FromFile(art); BackgroundImageLayout=ImageLayout.Zoom; }
-        LoadState(); Today(); if(state.SessionDate!=day.Date)ResetForNewDay(); EnsureCurrentWeekPlan(); StartTrackingSession();
-        Label brand=AddLabel(this,"PACE",135,30,850,24,10); brand.ForeColor=green; brand.BackColor=Color.Transparent; brand.Font=new Font("Segoe UI Semibold",10);
-        Label hero=AddLabel(this,"Make room for life off screen.",135,67,850,52,27); hero.ForeColor=ink; hero.BackColor=Color.Transparent; hero.Font=new Font("Segoe UI Semibold",27);
-        Label subtitle=AddLabel(this,"A plan you choose. Gentle reminders. Always built on trust.",137,125,840,30,11); subtitle.ForeColor=Color.FromArgb(91,108,100); subtitle.BackColor=Color.Transparent;
-        Panel card=new Panel { Location=new Point(135,169),Size=new Size(850,220),BackColor=sage,Padding=new Padding(2) }; Controls.Add(card); Round(card,18);
-        todayLabel=AddLabel(card,"TODAY    "+DateTime.Now.ToString("dddd, MMM d"),22,15,760,25,10);
-        remaining=AddLabel(card,"",22,46,780,52,30);
-        detail=AddLabel(card,"",24,104,780,26,11);
-        progress=new ProgressBar { Location=new Point(24,141), Size=new Size(800,8), Maximum=1000 }; card.Controls.Add(progress);
-        rest=ButtonAt(card,"Take a break",24,171,155,delegate { StartBreak(); });
-        extra=ButtonAt(card,"+ Add time",192,171,150,delegate { AddTime(); });
-        ButtonAt(card,"End screen time",360,171,150,delegate { StartManualShutdown(); });
-        trackingIndicator=AddLabel(card,"● Tracking now",535,177,285,28,10); trackingIndicator.ForeColor=Color.FromArgb(61,128,105); trackingIndicator.Font=new Font("Segoe UI Semibold",10);
+        LoadState(); PaceTheme.SetDark(state.DarkMode); SyncThemeColors(); BackColor=cream; ForeColor=ink; LoadBackgroundArt();
+        Today(); if(state.SessionDate!=day.Date)ResetForNewDay(); EnsureCurrentWeekPlan(); StartTrackingSession();
+        brandLabel=AddLabel(this,"PACE",135,30,850,24,10); brandLabel.ForeColor=green; brandLabel.BackColor=Color.Transparent; brandLabel.Font=new Font("Segoe UI Semibold",10);
+        heroLabel=AddLabel(this,"Make room for life off screen.",135,67,850,52,27); heroLabel.ForeColor=ink; heroLabel.BackColor=Color.Transparent; heroLabel.Font=new Font("Segoe UI Semibold",27);
+        subtitleLabel=AddLabel(this,"A plan you choose. Gentle reminders. Always built on trust.",137,125,840,30,11); subtitleLabel.ForeColor=PaceTheme.Muted; subtitleLabel.BackColor=Color.Transparent;
+        todayCard=new Panel { Location=new Point(135,169),Size=new Size(850,220),BackColor=sage,Padding=new Padding(2) }; Controls.Add(todayCard); Round(todayCard,18);
+        todayLabel=AddLabel(todayCard,"TODAY    "+DateTime.Now.ToString("dddd, MMM d"),22,15,760,25,10);
+        remaining=AddLabel(todayCard,"",22,46,780,52,30);
+        detail=AddLabel(todayCard,"",24,104,780,26,11);
+        progress=new ProgressBar { Location=new Point(24,141), Size=new Size(800,8), Maximum=1000 }; todayCard.Controls.Add(progress);
+        rest=ButtonAt(todayCard,"Take a break",24,171,155,delegate { StartBreak(); });
+        extra=ButtonAt(todayCard,"+ Add time",192,171,150,delegate { AddTime(); });
+        ButtonAt(todayCard,"End screen time",360,171,150,delegate { StartManualShutdown(); });
+        trackingIndicator=AddLabel(todayCard,"● Tracking now",535,177,285,28,10); trackingIndicator.ForeColor=green; trackingIndicator.Font=new Font("Segoe UI Semibold",10);
         status=AddLabel(this,"",137,407,850,28,11); status.ForeColor=Color.FromArgb(76,100,91); status.BackColor=Color.Transparent;
         tabs=new TabControl { Location=new Point(135,453),Size=new Size(850,300),Padding=new Point(18,7),Appearance=TabAppearance.Buttons,DrawMode=TabDrawMode.OwnerDrawFixed,SizeMode=TabSizeMode.Fixed,ItemSize=new Size(150,34) }; tabs.DrawItem+=DrawTab; Controls.Add(tabs); Round(tabs,14);
         TabPage weekly=new TabPage("Weekly plan") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(weekly);
@@ -285,7 +290,7 @@ public class ScreenTime : Form {
         activityRange.SelectedIndexChanged+=delegate { RefreshActivities(); };
         TabPage alerts=new TabPage("Settings") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(alerts);
         AddLabel(alerts,"Timing and sound",18,10,790,30,16);
-        Label timingHelp=AddLabel(alerts,"Every user-facing duration uses hours and minutes. Saved values apply to new reminders and breaks.",18,39,790,24,9); timingHelp.ForeColor=Color.FromArgb(91,108,100);
+        timingHelp=AddLabel(alerts,"Every user-facing duration uses hours and minutes. Saved values apply to new reminders and breaks.",18,39,790,24,9); timingHelp.ForeColor=PaceTheme.Muted;
         AddLabel(alerts,"Break reminder frequency",18,73,205,25,9); interval=new HourMinuteInput(1,720,state.Interval) { Location=new Point(230,68) }; alerts.Controls.Add(interval);
         AddLabel(alerts,"Break length",18,115,205,25,9); breakMinutes=new HourMinuteInput(1,240,state.BreakMinutes) { Location=new Point(230,110) }; alerts.Controls.Add(breakMinutes);
         AddLabel(alerts,"Wrap-up before a break",18,157,205,25,9); periodicWrap=new HourMinuteInput(1,120,state.PeriodicWrapMinutes) { Location=new Point(230,152) }; alerts.Controls.Add(periodicWrap);
@@ -293,7 +298,8 @@ public class ScreenTime : Form {
         AddLabel(alerts,"App mismatch grace",420,115,210,25,9); mismatchGrace=new HourMinuteInput(1,60,state.MismatchGraceMinutes) { Location=new Point(638,110) }; alerts.Controls.Add(mismatchGrace);
         AddLabel(alerts,"Mismatch reminder snooze",420,157,210,25,9); mismatchSnooze=new HourMinuteInput(1,240,state.MismatchSnoozeMinutes) { Location=new Point(638,152) }; alerts.Controls.Add(mismatchSnooze);
         AddLabel(alerts,"Alert volume",18,211,100,25,9); alertVolume=new NumericUpDown { Location=new Point(121,206),Size=new Size(65,28),Minimum=0,Maximum=100,Value=state.AlertVolume }; alerts.Controls.Add(alertVolume); AddLabel(alerts,"%",191,211,25,25,9);
-        settingsStatus=AddLabel(alerts,"",225,209,420,27,9); settingsStatus.ForeColor=Color.FromArgb(76,100,91);
+        settingsStatus=AddLabel(alerts,"",225,209,250,27,9); settingsStatus.ForeColor=PaceTheme.Muted;
+        darkMode=new Button { Text=state.DarkMode?"Dark mode: On":"Dark mode: Off",FlatStyle=FlatStyle.Flat,TextAlign=ContentAlignment.MiddleCenter,Location=new Point(490,202),Size=new Size(150,36),Cursor=Cursors.Hand }; darkMode.FlatAppearance.BorderSize=0; alerts.Controls.Add(darkMode); Round(darkMode,9); darkMode.Click+=delegate { DarkModeChanged(); };
         ButtonAt(alerts,"Save settings",660,202,148,36,delegate { SaveTimingSettings(); });
         TabPage health=new TabPage("Tracking health") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(health);
         trackingHealthTitle=AddLabel(health,"● Tracking now",18,16,575,30,15); trackingHealthTitle.Font=new Font("Segoe UI Semibold",15); trackingHealthTitle.ForeColor=green;
@@ -321,6 +327,7 @@ public class ScreenTime : Form {
         SystemEvents.SessionSwitch+=SessionChanged;
         SystemEvents.PowerModeChanged+=PowerChanged;
         StyleInputs(this);
+        ApplyTheme();
         timer=new System.Windows.Forms.Timer { Interval=1000 }; timer.Tick+=delegate { Tick(); }; timer.Start(); RefreshView();
         Shown+=delegate { cornerStarted=true; Hide(); if(UsingAdvancedPlan && state.DailyShutdown && !state.ManualShutdown && ActiveBlock!=null)ResumeForActiveBlock(); UpdateCorner(); if(UsingAdvancedPlan && ActiveBlock==null && ExtraRemaining<=0)StartDailyShutdown(); else if(state.DailyShutdown) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowDailyShutdown(DailyShutdownMessage()); } else if(state.BreakOffscreen) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowOffscreen(); } else if(state.BreakWaiting) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowFinished(); } else if(Breaking) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowBreak(state.BreakUntil); } PromptForWeek(); string notice=(stateNotice+" "+sessionNotice).Trim(); if(notice.Length>0) { tray.BalloonTipTitle=sessionNotice.Length>0?"Pace tracking resumed":"Pace data recovery"; tray.BalloonTipText=notice; tray.ShowBalloonTip(12000); } System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer { Interval=8000 }; updateTimer.Tick+=delegate { updateTimer.Stop(); updateTimer.Dispose(); CheckForUpdates(false); }; updateTimer.Start(); };
     }
@@ -356,8 +363,38 @@ public class ScreenTime : Form {
     void OpenUpdatePage() { try { Process.Start(updateUrl); } catch { MessageBox.Show("Open "+ReleasesUrl+" in your browser to download the update.","Pace updates"); } }
     Label AddLabel(Control parent,string text,int x,int y,int w,int h,float size) { Label l=new Label { Text=text,Location=new Point(x,y),Size=new Size(w,h),Font=new Font("Segoe UI",size),ForeColor=ink }; parent.Controls.Add(l); return l; }
     static void Round(Control control,int radius) { Action apply=delegate { if(control.Width<2 || control.Height<2)return; GraphicsPath path=new GraphicsPath(); int d=radius*2; path.AddArc(0,0,d,d,180,90); path.AddArc(control.Width-d-1,0,d,d,270,90); path.AddArc(control.Width-d-1,control.Height-d-1,d,d,0,90); path.AddArc(0,control.Height-d-1,d,d,90,90); path.CloseFigure(); Region old=control.Region; control.Region=new Region(path); if(old!=null)old.Dispose(); path.Dispose(); }; control.Resize+=delegate { apply(); }; if(control.IsHandleCreated)apply(); else control.HandleCreated+=delegate { apply(); }; }
-    void StyleInputs(Control root) { foreach(Control control in root.Controls) { if(control is ComboBox || control is NumericUpDown || control is TextBox) { control.BackColor=Color.FromArgb(250,249,244); Round(control,7); } if(control.HasChildren)StyleInputs(control); } }
-    void DrawTab(object sender,DrawItemEventArgs e) { Rectangle r=e.Bounds; r.Inflate(-4,-3); bool selected=e.Index==tabs.SelectedIndex; using(GraphicsPath path=new GraphicsPath()) { int d=14; path.AddArc(r.X,r.Y,d,d,180,90); path.AddArc(r.Right-d,r.Y,d,d,270,90); path.AddArc(r.Right-d,r.Bottom-d,d,d,0,90); path.AddArc(r.X,r.Bottom-d,d,d,90,90); path.CloseFigure(); using(SolidBrush brush=new SolidBrush(selected?green:Color.FromArgb(224,235,225)))e.Graphics.FillPath(brush,path); } using(Font tabFont=new Font("Segoe UI Semibold",9))TextRenderer.DrawText(e.Graphics,tabs.TabPages[e.Index].Text,tabFont,r,selected?Color.White:ink,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.NoPrefix); }
+    void StyleInputs(Control root) { foreach(Control control in root.Controls) { if(control is ComboBox || control is NumericUpDown || control is TextBox) { control.BackColor=PaceTheme.Input; control.ForeColor=PaceTheme.Text; Round(control,7); } if(control.HasChildren)StyleInputs(control); } }
+    void SyncThemeColors() { ink=PaceTheme.Text; green=PaceTheme.Accent; cream=PaceTheme.Background; sage=PaceTheme.Card; }
+    void LoadBackgroundArt() {
+        string path=Path.Combine(AppDomain.CurrentDomain.BaseDirectory,"assets","pace-garden-fitted.png");
+        if(!File.Exists(path))return;
+        try { using(Image loaded=Image.FromFile(path))originalArt=new Bitmap(loaded); BackgroundImageLayout=ImageLayout.Zoom; ApplyBackgroundArt(); } catch { originalArt=null; }
+    }
+    void ApplyBackgroundArt() {
+        if(originalArt==null)return;
+        Bitmap themed=new Bitmap(originalArt.Width,originalArt.Height);
+        using(Graphics graphics=Graphics.FromImage(themed)) {
+            if(PaceTheme.Dark)using(ImageAttributes attributes=new ImageAttributes()) {
+                ColorMatrix matrix=new ColorMatrix(new float[][] { new float[]{.30f,0,0,0,0},new float[]{0,.34f,0,0,0},new float[]{0,0,.32f,0,0},new float[]{0,0,0,1,0},new float[]{.01f,.015f,.012f,0,1} });
+                attributes.SetColorMatrix(matrix); graphics.DrawImage(originalArt,new Rectangle(0,0,themed.Width,themed.Height),0,0,originalArt.Width,originalArt.Height,GraphicsUnit.Pixel,attributes);
+            } else graphics.DrawImage(originalArt,0,0,themed.Width,themed.Height);
+        }
+        Image previous=BackgroundImage; BackgroundImage=themed; if(previous!=null && previous!=originalArt)previous.Dispose();
+    }
+    void ApplyTheme() {
+        PaceTheme.SetDark(state.DarkMode); SyncThemeColors(); PaceTheme.Apply(this);
+        BackColor=cream; ForeColor=ink; tabs.BackColor=cream; todayCard.BackColor=sage;
+        brandLabel.ForeColor=green; heroLabel.ForeColor=ink; subtitleLabel.ForeColor=PaceTheme.Muted; detail.ForeColor=PaceTheme.Muted; status.ForeColor=PaceTheme.Muted; weekHint.ForeColor=PaceTheme.Muted; advancedHint.ForeColor=PaceTheme.Muted; activitySummary.ForeColor=PaceTheme.Muted; timingHelp.ForeColor=PaceTheme.Muted; settingsStatus.ForeColor=PaceTheme.Muted; trackingHealthDetail.ForeColor=PaceTheme.Muted;
+        trackingIndicator.ForeColor=saveFailed?PaceTheme.Warning:green; trackingHealthTitle.ForeColor=saveFailed?PaceTheme.Warning:green;
+        darkMode.Text=state.DarkMode?"Dark mode: On":"Dark mode: Off"; darkMode.BackColor=state.DarkMode?green:PaceTheme.Input; darkMode.ForeColor=state.DarkMode?Color.White:ink;
+        activityChart.SetDarkMode(state.DarkMode); trackingTimeline.SetDarkMode(state.DarkMode); blockPreview.SetDarkMode(state.DarkMode); cornerBar.SetDarkMode(state.DarkMode);
+        if(toast!=null && !toast.IsDisposed) { PaceTheme.Apply(toast); toast.BackColor=PaceTheme.Reminder; }
+        if(focusToast!=null && !focusToast.IsDisposed) { PaceTheme.Apply(focusToast); focusToast.BackColor=PaceTheme.FocusReminder; }
+        if(tray!=null && tray.ContextMenuStrip!=null) { tray.ContextMenuStrip.BackColor=PaceTheme.Surface; tray.ContextMenuStrip.ForeColor=ink; foreach(ToolStripItem item in tray.ContextMenuStrip.Items) { item.BackColor=PaceTheme.Surface; item.ForeColor=ink; } }
+        StyleInputs(this); ApplyBackgroundArt(); tabs.Invalidate(); Invalidate(true);
+    }
+    void DarkModeChanged() { state.DarkMode=!state.DarkMode; ApplyTheme(); settingsStatus.Text=state.DarkMode?"Dark mode is on.":"Dark mode is off."; settingsStatus.ForeColor=PaceTheme.Muted; Save(); }
+    void DrawTab(object sender,DrawItemEventArgs e) { Rectangle r=e.Bounds; r.Inflate(-4,-3); bool selected=e.Index==tabs.SelectedIndex; using(GraphicsPath path=new GraphicsPath()) { int d=14; path.AddArc(r.X,r.Y,d,d,180,90); path.AddArc(r.Right-d,r.Y,d,d,270,90); path.AddArc(r.Right-d,r.Bottom-d,d,d,0,90); path.AddArc(r.X,r.Bottom-d,d,d,90,90); path.CloseFigure(); using(SolidBrush brush=new SolidBrush(selected?green:sage))e.Graphics.FillPath(brush,path); } using(Font tabFont=new Font("Segoe UI Semibold",9))TextRenderer.DrawText(e.Graphics,tabs.TabPages[e.Index].Text,tabFont,r,selected?Color.White:ink,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.NoPrefix); }
     void ResetWeekPicker() {
         DateTime monday=Settings.Monday(DateTime.Now);
         weekPicker.Items.Clear();
@@ -397,9 +434,9 @@ public class ScreenTime : Form {
         Save(); LoadWeekEditor(); if(selectedWeek==Settings.Monday(DateTime.Now) && advanced && ActiveBlock==null && ExtraRemaining<=0)StartDailyShutdown(); else RefreshView();
     }
     void SaveTimingSettings() {
-        foreach(HourMinuteInput input in new[]{interval,breakMinutes,periodicWrap,closingWarning,mismatchGrace,mismatchSnooze})if(!input.IsValid) { settingsStatus.Text="Each duration must be at least 1m."; settingsStatus.ForeColor=Color.FromArgb(178,73,61); return; }
+        foreach(HourMinuteInput input in new[]{interval,breakMinutes,periodicWrap,closingWarning,mismatchGrace,mismatchSnooze})if(!input.IsValid) { settingsStatus.Text="Each duration must be at least 1m."; settingsStatus.ForeColor=PaceTheme.Error; return; }
         state.Interval=interval.TotalMinutes; state.BreakMinutes=breakMinutes.TotalMinutes; state.PeriodicWrapMinutes=periodicWrap.TotalMinutes; state.ClosingWarningMinutes=closingWarning.TotalMinutes; state.MismatchGraceMinutes=mismatchGrace.TotalMinutes; state.MismatchSnoozeMinutes=mismatchSnooze.TotalMinutes; state.AlertVolume=(int)alertVolume.Value;
-        settingsStatus.Text="Saved  ·  Ending warning: "+FormatDuration(state.ClosingWarningMinutes*60); settingsStatus.ForeColor=Color.FromArgb(76,100,91); Save(); RefreshView();
+        settingsStatus.Text="Saved  ·  Ending warning: "+FormatDuration(state.ClosingWarningMinutes*60); settingsStatus.ForeColor=PaceTheme.Muted; Save(); RefreshView();
     }
     void CopyPreviousWeek() {
         DateTime previousDate=selectedWeek.AddDays(-7); WeeklyPlan previous=state.GetWeek(previousDate);
@@ -435,12 +472,12 @@ public class ScreenTime : Form {
             EndTrackingSession("Pace closed normally.");
             SystemEvents.SessionSwitch-=SessionChanged; SystemEvents.PowerModeChanged-=PowerChanged;
             if(timer!=null)timer.Dispose(); if(cleanupTimer!=null)cleanupTimer.Dispose(); if(tray!=null)tray.Dispose(); if(toast!=null)toast.Dispose(); if(focusToast!=null)focusToast.Dispose();
-            if(cornerBar!=null)cornerBar.Dispose(); if(breakScreen!=null)breakScreen.Dispose(); alertSound.Dispose();
+            if(cornerBar!=null)cornerBar.Dispose(); if(breakScreen!=null)breakScreen.Dispose(); alertSound.Dispose(); if(BackgroundImage!=null)BackgroundImage.Dispose(); if(originalArt!=null)originalArt.Dispose();
         }
         base.Dispose(disposing);
     }
     Button ButtonAt(Control p,string t,int x,int y,int w,EventHandler a) { return ButtonAt(p,t,x,y,w,34,a); }
-    Button ButtonAt(Control p,string t,int x,int y,int w,int h,EventHandler a) { Button b=new Button { Text=t,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=green,ForeColor=Color.White,Cursor=Cursors.Hand,Font=new Font("Segoe UI Semibold",9) }; b.FlatAppearance.BorderSize=0; b.FlatAppearance.MouseOverBackColor=Color.FromArgb(76,145,121); b.FlatAppearance.MouseDownBackColor=Color.FromArgb(46,105,86); b.Click+=a; p.Controls.Add(b); Round(b,9); return b; }
+    Button ButtonAt(Control p,string t,int x,int y,int w,int h,EventHandler a) { Button b=new Button { Text=t,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=green,ForeColor=Color.White,Cursor=Cursors.Hand,Font=new Font("Segoe UI Semibold",9) }; b.FlatAppearance.BorderSize=0; b.FlatAppearance.MouseOverBackColor=PaceTheme.AccentHover; b.FlatAppearance.MouseDownBackColor=PaceTheme.AccentDown; b.Click+=a; p.Controls.Add(b); Round(b,9); return b; }
     Settings ReadState(string path) { using(var file=File.OpenRead(path))return (Settings)new XmlSerializer(typeof(Settings)).Deserialize(file); }
     void NormalizeState() {
         if(state==null || state.Weeks==null || state.Weeks.Exists(w=>w==null || w.Minutes==null || w.Minutes.Length!=7 || Array.Exists(w.Minutes,v=>v<0 || v>1440)) || state.Interval<1 || state.Interval>720 || state.BreakMinutes<1 || state.BreakMinutes>240 || state.PeriodicWrapMinutes<1 || state.PeriodicWrapMinutes>120 || state.ClosingWarningMinutes<1 || state.ClosingWarningMinutes>240 || state.MismatchGraceMinutes<1 || state.MismatchGraceMinutes>60 || state.MismatchSnoozeMinutes<1 || state.MismatchSnoozeMinutes>240 || state.Days==null)throw new InvalidDataException();
@@ -589,9 +626,9 @@ public class ScreenTime : Form {
     void HideFocusReminder() { Form current=focusToast; focusToast=null; if(current!=null && !current.IsDisposed)current.Close(); }
     void DismissFocusReminder() { mismatchSnoozeKey=mismatchKey; mismatchSnoozedUntil=DateTime.UtcNow.AddMinutes(state.MismatchSnoozeMinutes); HideFocusReminder(); RefreshView(); }
     void ShowFocusReminder() {
-        focusToast=new Reminder { Text="Outside this block",ClientSize=new Size(438,194),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=Color.FromArgb(250,244,226) };
+        focusToast=new Reminder { Text="Outside this block",ClientSize=new Size(438,194),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=PaceTheme.FocusReminder };
         Round(focusToast,14);
-        Label heading=AddLabel(focusToast,"A GENTLE COURSE CHECK",16,12,406,28,13); heading.ForeColor=Color.FromArgb(126,83,38);
+        Label heading=AddLabel(focusToast,"A GENTLE COURSE CHECK",16,12,406,28,13); heading.ForeColor=PaceTheme.Dark?Color.FromArgb(244,202,126):Color.FromArgb(126,83,38);
         AddLabel(focusToast,"This block is for "+mismatchBlock+".",16,43,406,27,11);
         Label current=AddLabel(focusToast,mismatchActivity+" does not match the apps or sites you planned.",16,73,406,58,10); current.AutoEllipsis=true;
         ButtonAt(focusToast,"Dismiss for "+FormatDuration(state.MismatchSnoozeMinutes*60),122,145,194,delegate { DismissFocusReminder(); });
@@ -681,7 +718,7 @@ public class ScreenTime : Form {
     }
     void BeginPeriodicCleanup() {
         HideFocusReminder(); mismatchSeconds=0; StopCleanup(); cleanupActive=true; cleanupClosesPlan=false; cleanupUntil=DateTime.UtcNow.AddMinutes(state.PeriodicWrapMinutes); cleanupLastPing=state.PeriodicWrapMinutes*60;
-        toast=new Reminder { Text="Wrap up",ClientSize=new Size(438,174),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=Color.FromArgb(239,246,239) };
+        toast=new Reminder { Text="Wrap up",ClientSize=new Size(438,174),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=PaceTheme.Reminder };
         Round(toast,14);
         AddLabel(toast,"TIME TO WRAP UP",16,12,406,32,15);
         AddLabel(toast,"Finish what you're doing, then a break will begin automatically.",16,52,406,40,11);
@@ -692,7 +729,7 @@ public class ScreenTime : Form {
     }
     void BeginClosingCountdown() {
         HideFocusReminder(); mismatchSeconds=0; StopCleanup(); cleanupActive=true; cleanupClosesPlan=true; cleanupLastPing=(int)Math.Ceiling(CleanupSecondsLeft());
-        toast=new Reminder { Text="Screen time ending",ClientSize=new Size(438,150),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=Color.FromArgb(239,246,239) };
+        toast=new Reminder { Text="Screen time ending",ClientSize=new Size(438,150),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=PaceTheme.Reminder };
         Round(toast,14);
         AddLabel(toast,UsingAdvancedPlan && ActiveBlock!=null?"BLOCK ENDING SOON":"SCREEN TIME ENDING",16,12,406,32,15);
         AddLabel(toast,"Use this time to finish naturally. Pace will close screen time when the countdown reaches zero.",16,48,406,44,10);
@@ -777,6 +814,7 @@ public class ScreenTime : Form {
                 day.Warned=false; day.Exhausted=false; day.BreakEarned=false; if(UsingAdvancedPlan && ActiveBlock==null)day.ActiveBlock="extra";
                 state.DailyShutdown=false; state.ManualShutdown=false; state.BreakOffscreen=false; state.BreakWaiting=false; StopCleanup(); if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); dialog.DialogResult=DialogResult.OK;
             });
+            if(!restoreDailyShutdown)PaceTheme.Apply(dialog);
             if(restoreDailyShutdown)foreach(Control control in content.Controls)if(control is Label)control.ForeColor=Color.White;
             dialog.ShowDialog(this);
             RestoreDailyShutdown(restoreDailyShutdown);
@@ -797,9 +835,9 @@ public class ScreenTime : Form {
     }
     void RefreshTrackingHealth() {
         if(trackingEvents==null)return; bool startup=StartsWithWindows(); double gapToday=TrackingGapSecondsForDay(DateTime.Now);
-        trackingHealthTitle.Text=saveFailed?"● Tracking, but not saving":"● Tracking now"; trackingHealthTitle.ForeColor=saveFailed?Color.FromArgb(178,105,56):green;
+        trackingHealthTitle.Text=saveFailed?"● Tracking, but not saving":"● Tracking now"; trackingHealthTitle.ForeColor=saveFailed?PaceTheme.Warning:green;
         trackingHealthDetail.Text=(saveFailed?"Pace cannot save its heartbeat or usage. Check the Pace data-folder permissions.":"The heartbeat is current. Screen-time tracking is active.")+(gapToday>0?"  "+FormatDuration(gapToday)+" was not tracked today.":"  No tracking gaps today.");
-        trackingLaunchStatus.Text=startup?"Launch at sign-in is on, so Pace can begin with Windows.":"Launch at sign-in is off. Pace cannot track until you open it."; trackingLaunchStatus.ForeColor=startup?Color.FromArgb(76,100,91):Color.FromArgb(157,96,48); enableStartup.Visible=!startup;
+        trackingLaunchStatus.Text=startup?"Launch at sign-in is on, so Pace can begin with Windows.":"Launch at sign-in is off. Pace cannot track until you open it."; trackingLaunchStatus.ForeColor=startup?PaceTheme.Muted:PaceTheme.Warning; enableStartup.Visible=!startup;
         trackingTimeline.SetData(state.TrackingEvents,DateTime.Now,state.TrackingSessionOpen,sessionLocked||sessionSuspended);
         trackingEvents.BeginUpdate(); trackingEvents.Items.Clear();
         int first=Math.Max(0,state.TrackingEvents.Count-100); for(int i=state.TrackingEvents.Count-1;i>=first;i--)trackingEvents.Items.Add(TrackingEventLine(state.TrackingEvents[i]));
@@ -824,7 +862,7 @@ public class ScreenTime : Form {
         progress.Value=!HasPlan?0:Budget<=0?1000:(int)Math.Max(0,Math.Min(1000,used/Budget*1000));
         status.Text=CurrentStatusText();
         rest.Enabled=!Breaking && !state.BreakWaiting && !state.DailyShutdown; extra.Enabled=!Breaking && !state.BreakWaiting && HasPlan;
-        trackingIndicator.Text=saveFailed?"● Tracking; unable to save":"● Tracking now"; trackingIndicator.ForeColor=saveFailed?Color.FromArgb(178,105,56):green;
+        trackingIndicator.Text=saveFailed?"● Tracking; unable to save":"● Tracking now"; trackingIndicator.ForeColor=saveFailed?PaceTheme.Warning:green;
         UpdateCorner();
         if(ticks%5==0) { RefreshHistory(); RefreshActivities(); RefreshTrackingHealth(); }
     }
@@ -862,7 +900,7 @@ public class ScreenTime : Form {
     void Notify(string title,string message) {
         HideFocusReminder(); StopCleanup();
         alertSound.Play(state.AlertVolume);
-        toast=new Reminder { Text=title,ClientSize=new Size(438,174),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=Color.FromArgb(239,246,239) };
+        toast=new Reminder { Text=title,ClientSize=new Size(438,174),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=PaceTheme.Reminder };
         Round(toast,14);
         UpdateCorner(); PositionReminder();
         AddLabel(toast,title,16,12,406,32,15); AddLabel(toast,message,16,52,406,66,11);

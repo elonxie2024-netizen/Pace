@@ -53,6 +53,22 @@ try {
     $durationFlags = [Reflection.BindingFlags]'NonPublic,Instance'
     $minutePart = $snoozeInput.GetType().GetField('minutes',$durationFlags).GetValue($snoozeInput)
     Assert ($minutePart.Value -eq 15 -and $minutePart.Maximum -le 59) 'Custom durations must split 1h 15m into hours and a minute component below 60'
+    if ($null -eq $app.BackgroundImage) {
+        $testArt = New-Object Drawing.Bitmap -ArgumentList @((Join-Path $PSScriptRoot 'assets\pace-garden-fitted.png'))
+        $app.GetType().GetField('originalArt',$flags).SetValue($app,$testArt)
+        $app.GetType().GetMethod('ApplyBackgroundArt',$flags).Invoke($app,@())
+    }
+    $lightArt = [Drawing.Bitmap]$app.BackgroundImage
+    $lightPixel = $lightArt.GetPixel([int]($lightArt.Width/2),[int]($lightArt.Height/2))
+    $darkToggle = Field 'darkMode'; $app.GetType().GetMethod('DarkModeChanged',$flags).Invoke($app,@())
+    Assert ($state.DarkMode -and [PaceTheme]::Dark -and $darkToggle.Text -eq 'Dark mode: On') 'Dark mode must apply immediately and update its setting control'
+    Assert ($app.BackColor -eq [PaceTheme]::Background -and (Field 'todayCard').BackColor -eq [PaceTheme]::Card -and (Field 'tabs').TabPages[0].BackColor -eq [PaceTheme]::Surface) 'Dark mode must theme the dashboard, today card, and tab surfaces'
+    Assert ((Field 'activityChart').BackColor -eq [PaceTheme]::Surface -and (Field 'trackingTimeline').BackColor -eq [PaceTheme]::Surface -and (Field 'cornerBar').BackColor -eq [Drawing.Color]::FromArgb(22,38,33)) 'Dark mode must theme reports, tracking visuals, and the corner bar'
+    $darkArt = [Drawing.Bitmap]$app.BackgroundImage
+    $darkPixel = $darkArt.GetPixel([int]($darkArt.Width/2),[int]($darkArt.Height/2))
+    Assert (($darkPixel.R+$darkPixel.G+$darkPixel.B) -lt ($lightPixel.R+$lightPixel.G+$lightPixel.B)) 'Dark mode must retain and visibly darken the garden artwork'
+    $settingsTab = (Field 'tabs').TabPages[3]; $saveSettingsButton = @($settingsTab.Controls | Where-Object { $_ -is [Windows.Forms.Button] -and $_.Text -eq 'Save settings' })[0]
+    Assert (-not $darkToggle.Bounds.IntersectsWith((Field 'settingsStatus').Bounds) -and -not $darkToggle.Bounds.IntersectsWith($saveSettingsButton.Bounds)) 'The dark-mode control must not overlap settings status or save actions'
 
     $gapMethod = $app.GetType().GetMethod('RecordPreviousTrackingGap',$flags)
     $gapNow = [datetime]::Now
@@ -103,6 +119,7 @@ try {
     $allowedAppsInput = $advancedEditor.GetType().GetField('allowedApps',$flags).GetValue($advancedEditor)
     $editorStatus = $advancedEditor.GetType().GetField('status',$flags).GetValue($advancedEditor)
     Assert ($allowedAppsInput.Text -eq $blockA.AllowedApps -and $allowedAppsInput.Bottom -lt $editorStatus.Top) 'The advanced editor must load activity words into a dedicated field without overlapping its status text'
+    Assert ($advancedEditor.BackColor -eq [PaceTheme]::Background -and $editorTimeline.BackColor -eq [PaceTheme]::Surface -and $allowedAppsInput.BackColor -eq [PaceTheme]::Input) 'Dark mode must carry into the advanced planner and its inputs'
     $allowedAppsInput.Text = 'Outlook; Teams; outlook'
     $advancedEditor.GetType().GetMethod('AddOrUpdate',$flags).Invoke($advancedEditor,@())
     Assert ($advancedEditor.ResultBlocks[0].AllowedApps -eq 'Outlook, Teams') 'Updating a block must save normalized app and site matching words'
@@ -183,6 +200,7 @@ try {
     Assert ($corner.Left -ge $visibleArea.Left -and $corner.Right -le $visibleArea.Right -and $corner.Top -ge $visibleArea.Top -and $corner.Bottom -le $visibleArea.Bottom) 'The corner bar must return inside a current screen after a display-layout change'
     $app.GetType().GetMethod('Notify', $flags).Invoke($app, @('Test reminder', 'Silent layout verification'))
     $toast = Field 'toast'
+    Assert ($toast.BackColor -eq [PaceTheme]::Reminder) 'Dark mode must carry into reminder windows'
     Assert ($toast.Bottom -lt $corner.Top) 'Reminder must sit above the persistent corner bar'
     Assert ($toast.GetType().GetProperty('ShowWithoutActivation', $flags).GetValue($toast, $null)) 'Reminder must show without stealing focus'
     Assert (($toast.Controls | Where-Object { $_ -is [Windows.Forms.Button] } | Select-Object -First 1).Text -eq 'Open weekly plan') 'The weekly-plan reminder must open the planner instead of starting an unrelated break'
@@ -339,7 +357,7 @@ try {
     Assert (-not $loaded.GetWeek($nextWeek).Advanced) 'Advanced plan mode must stay attached to its own week'
     Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason' -and $loaded.Days[0].ActiveReason -eq 'Testing visible extra-time reason') 'Usage, extra time, and reasons must survive reload'
     Assert ($loaded.AlertVolume -eq 73) 'Reminder volume must survive reload'
-    Assert ($loaded.Interval -eq 75 -and $loaded.BreakMinutes -eq 90 -and $loaded.PeriodicWrapMinutes -eq 7 -and $loaded.ClosingWarningMinutes -eq 3 -and $loaded.MismatchGraceMinutes -eq 2 -and $loaded.MismatchSnoozeMinutes -eq 75) 'All custom timing settings must survive reload'
+    Assert ($loaded.Interval -eq 75 -and $loaded.BreakMinutes -eq 90 -and $loaded.PeriodicWrapMinutes -eq 7 -and $loaded.ClosingWarningMinutes -eq 3 -and $loaded.MismatchGraceMinutes -eq 2 -and $loaded.MismatchSnoozeMinutes -eq 75 -and $loaded.DarkMode) 'All custom timing and appearance settings must survive reload'
     Call 'Save'
     Set-Content -LiteralPath (Join-Path $tempFolder 'state.xml') -Value '<damaged>'
     Call 'LoadState'
@@ -362,7 +380,7 @@ try {
     $restartedCorner = Field 'cornerBar'
     Assert ($restarted.CornerPositioned -and $restartedCorner.Left -eq $savedX -and $restartedCorner.Top -eq $savedY) 'A user-positioned corner bar must return to its saved location after restart'
     Assert ($restarted.TrackingSessionOpen -and ($restarted.TrackingEvents | Where-Object { $_.Kind -eq 'Stopped' }).Count -ge 1) 'A clean exit and restart must preserve tracking continuity events and open a new session'
-    Write-Host 'PASS: planning, customizable timing, activity-aware blocks, tracking continuity, health timeline, reporting, recovery, positioning, accounting, breaks, reminders, and persistence.'
+    Write-Host 'PASS: planning, customizable timing, dark mode, activity-aware blocks, tracking continuity, health timeline, reporting, recovery, positioning, accounting, breaks, reminders, and persistence.'
 } finally {
     if ($app) { $app.Dispose() }
     # Delete only the known test files and empty directory; never touch real application data.

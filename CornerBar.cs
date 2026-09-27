@@ -53,6 +53,7 @@ public sealed class CornerBar : Form {
         FormClosing+=delegate(object s,FormClosingEventArgs e) { if(e.CloseReason==CloseReason.UserClosing)e.Cancel=true; };
         SizeChanged+=delegate { ApplyRoundedRegion(); if(!changingWindowMode && IsMinimized && WindowState==FormWindowState.Normal)RestoreBar(); };
         ApplyRoundedRegion();
+        SetDarkMode(PaceTheme.Dark);
     }
     [DllImport("user32.dll")] static extern bool ReleaseCapture();
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd,int msg,int wParam,int lParam);
@@ -93,7 +94,7 @@ public sealed class CornerBar : Form {
     void SetNotice(string value,string prefix,bool warning) {
         string clean=(value??"").Trim(); bool show=clean.Length>0; string shownPrefix=show?prefix:""; if(showingReason==show && reason.Text==clean && noticePrefix==shownPrefix && noticeWarning==warning)return;
         int oldBottom=Bottom,offset=show?62:0; showingReason=show; noticePrefix=show?prefix:""; reason.Text=clean; reason.Visible=show;
-        reason.BackColor=warning?Color.FromArgb(104,84,54):Color.FromArgb(48,85,72); reason.ForeColor=warning?Color.FromArgb(255,239,195):Color.FromArgb(240,246,230);
+        reason.BackColor=warning?(PaceTheme.Dark?Color.FromArgb(91,70,38):Color.FromArgb(104,84,54)):(PaceTheme.Dark?Color.FromArgb(35,63,53):Color.FromArgb(48,85,72)); reason.ForeColor=warning?Color.FromArgb(255,239,195):Color.FromArgb(240,246,230);
         if(noticeWarning!=warning) { Font oldFont=reason.Font; reason.Font=new Font(warning?"Segoe UI Semibold":"Segoe UI",warning?10.5f:13.5f); oldFont.Dispose(); } noticeWarning=warning;
         allottedTitle.Top=34+offset; usedTitle.Top=34+offset; nextTitle.Top=34+offset;
         addTime.Top=30+offset; takeBreak.Top=30+offset;
@@ -103,7 +104,14 @@ public sealed class CornerBar : Form {
         UpdateAccessibleDescription();
     }
     void UpdateAccessibleDescription() { AccessibleDescription="Tracking: "+(trackingHealth.Text.Contains("UNSAVED")?"active, but data is not saving":"active")+". "+(showingReason?noticePrefix+": "+reason.Text.Replace("\r\n",". ")+". ":"")+"Allotted: "+allotted.Text+". Used: "+used.Text+". "+nextTitle.Text+": "+next.Text; }
-    public void SetTrackingHealth(bool saving) { trackingHealth.Text=saving?"● ACTIVE":"● UNSAVED"; trackingHealth.ForeColor=saving?Color.FromArgb(179,224,189):Color.FromArgb(255,190,125); UpdateAccessibleDescription(); }
+    public void SetTrackingHealth(bool saving) { trackingHealth.Text=saving?"● ACTIVE":"● UNSAVED"; trackingHealth.ForeColor=saving?(PaceTheme.Dark?Color.FromArgb(154,224,185):Color.FromArgb(179,224,189)):Color.FromArgb(255,190,125); UpdateAccessibleDescription(); }
+    public void SetDarkMode(bool dark) {
+        BackColor=dark?Color.FromArgb(22,38,33):Color.FromArgb(35,67,58);
+        foreach(Label label in new[]{allotted,used,next,nextTitle,heading,allottedTitle,usedTitle})label.ForeColor=Color.FromArgb(240,246,230);
+        foreach(Button button in new[]{addTime,takeBreak,endDay,minimize,resetPosition}) { button.BackColor=dark?Color.FromArgb(49,91,75):Color.FromArgb(76,139,113); button.FlatAppearance.MouseOverBackColor=dark?Color.FromArgb(64,116,96):Color.FromArgb(93,157,130); }
+        reason.BackColor=noticeWarning?(dark?Color.FromArgb(91,70,38):Color.FromArgb(104,84,54)):(dark?Color.FromArgb(35,63,53):Color.FromArgb(48,85,72));
+        SetTrackingHealth(!trackingHealth.Text.Contains("UNSAVED")); Invalidate(true);
+    }
     public void PlaceInCorner(Rectangle area) { if(!userPositioned)Location=new Point(Math.Max(area.Left,area.Right-Width-16),Math.Max(area.Top,area.Bottom-Height-16)); }
     public void RestoreSavedPosition(int x,int y) { Point requested=new Point(x,y); Rectangle area=Screen.FromPoint(requested).WorkingArea; userPositioned=true; Location=new Point(Math.Max(area.Left,Math.Min(x,area.Right-Width)),Math.Max(area.Top,Math.Min(y,area.Bottom-Height))); }
     public void EnsureVisible() {

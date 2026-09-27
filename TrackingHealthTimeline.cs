@@ -14,7 +14,7 @@ public sealed class TrackingHealthTimeline : Control {
     readonly Color tracked=Color.FromArgb(81,145,118);
     readonly Color paused=Color.FromArgb(213,170,92);
     readonly Color gap=Color.FromArgb(194,105,91);
-    readonly Color empty=Color.FromArgb(229,232,226);
+    Color Empty { get { return PaceTheme.Dark?Color.FromArgb(54,65,59):Color.FromArgb(229,232,226); } }
     DateTime day=DateTime.Today,now=DateTime.Now;
     public double TrackedSeconds { get; private set; }
     public double PausedSeconds { get; private set; }
@@ -22,11 +22,12 @@ public sealed class TrackingHealthTimeline : Control {
 
     public TrackingHealthTimeline() {
         DoubleBuffered=true;
-        BackColor=Color.FromArgb(252,251,247);
+        BackColor=PaceTheme.Surface;
         Font=new Font("Segoe UI",8);
         AccessibleName="Today's tracking timeline";
         AccessibleRole=AccessibleRole.Graphic;
     }
+    public void SetDarkMode(bool dark) { BackColor=PaceTheme.Surface; Invalidate(); }
 
     static bool Parse(string value,out DateTime result) { return DateTime.TryParse(value,out result); }
     static bool PointEvent(TrackingEventRecord item) { return item!=null && item.Kind!="Gap"; }
@@ -110,15 +111,15 @@ public sealed class TrackingHealthTimeline : Control {
     }
     void DrawLegend(Graphics graphics,string label,Color color,int x,int y) {
         using(Brush brush=new SolidBrush(color))graphics.FillEllipse(brush,x,y+3,8,8);
-        TextRenderer.DrawText(graphics,label,Font,new Point(x+12,y),Color.FromArgb(75,94,86),TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(graphics,label,Font,new Point(x+12,y),PaceTheme.Muted,TextFormatFlags.NoPadding);
     }
     protected override void OnPaint(PaintEventArgs e) {
         base.OnPaint(e); e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;
-        Color ink=Color.FromArgb(38,58,53),muted=Color.FromArgb(91,108,100);
+        Color ink=PaceTheme.Text,muted=PaceTheme.Muted;
         using(Font heading=new Font("Segoe UI Semibold",9))TextRenderer.DrawText(e.Graphics,"TODAY'S TRACKING",heading,new Point(10,3),ink,TextFormatFlags.NoPadding);
         TextRenderer.DrawText(e.Graphics,Duration(TrackedSeconds)+" tracked",Font,new Rectangle(150,3,ClientSize.Width-160,18),muted,TextFormatFlags.Right|TextFormatFlags.NoPadding);
         Rectangle lane=new Rectangle(10,25,Math.Max(20,ClientSize.Width-20),18);
-        using(Brush brush=new SolidBrush(empty))FillRound(e.Graphics,brush,lane,8);
+        using(Brush brush=new SolidBrush(Empty))FillRound(e.Graphics,brush,lane,8);
         GraphicsState laneState=e.Graphics.Save(); using(GraphicsPath lanePath=RoundPath(lane,8))e.Graphics.SetClip(lanePath);
         foreach(Slice slice in slices)if(slice.Kind!="Gap") {
             int left=TimeX(slice.Start,lane),right=TimeX(slice.End,lane);
@@ -144,6 +145,6 @@ public sealed class TrackingHealthTimeline : Control {
         DrawLegend(e.Graphics,"Tracked",tracked,10,legendY);
         DrawLegend(e.Graphics,"Locked / sleep",paused,91,legendY);
         DrawLegend(e.Graphics,"Not tracked",gap,211,legendY);
-        DrawLegend(e.Graphics,"No timeline data",empty,310,legendY);
+        DrawLegend(e.Graphics,"No timeline data",Empty,310,legendY);
     }
 }
