@@ -54,7 +54,7 @@ For an activity-aware advanced block, open **Edit blocks** and enter matching wo
 
 Closing the main window minimizes Pace to the notification area and keeps tracking. Use the notification-area menu to reopen the window or choose **Exit**. **Exit** stops tracking and closes the app.
 
-The corner bar's minus button minimizes it as a normal taskbar app. Restore it from the taskbar or choose **Show corner bar** from Pace's notification-area menu. Pace also moves a saved bar position back onto the visible desktop if the monitor layout changes.
+The corner bar's minus button minimizes it as a normal taskbar app. Restore it from the taskbar or choose **Show corner bar** from Pace's notification-area menu. Drag any non-button surface except the **Click to open/close** label to move the bar. Pace also moves a saved bar position back onto the visible desktop if the monitor layout changes.
 
 The **Tracking health** tab confirms that the heartbeat is current, checks whether launch at sign-in points to the running Pace installation, and visualizes today's tracked, locked or sleeping, untracked, and unknown periods on a timeline. Recent events remain listed below it. If Pace was closed or stopped unexpectedly, the next launch records the unknown interval in both **Tracking health** and **Time & reasons**. Time in a tracking gap is identified as unknown and is never silently added to screen usage.
 

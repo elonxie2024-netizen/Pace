@@ -186,6 +186,22 @@ try {
     [System.Windows.Forms.Application]::DoEvents()
     $app.Hide()
     Assert ($corner.Visible -and -not $app.Visible -and $corner.TopMost) 'Corner must remain visible above other windows when dashboard is hidden'
+    $passiveNames = @('trackingHealth','reason','allottedTitle','usedTitle','nextTitle','allotted','used','next','progress')
+    $passiveControls = @($passiveNames | ForEach-Object { $corner.GetType().GetField($_,$flags).GetValue($corner) })
+    Assert ($corner.Cursor -eq [Windows.Forms.Cursors]::SizeAll -and @($passiveControls | Where-Object { $_.Cursor -ne [Windows.Forms.Cursors]::SizeAll }).Count -eq 0) 'Every passive corner-bar surface must be draggable'
+    $heading = $corner.GetType().GetField('heading',$flags).GetValue($corner)
+    $buttonNames = @('addTime','takeBreak','endDay','minimize','resetPosition')
+    $cornerButtons = @($buttonNames | ForEach-Object { $corner.GetType().GetField($_,$flags).GetValue($corner) })
+    Assert ($heading.Cursor -eq [Windows.Forms.Cursors]::Hand -and $heading.AccessibleRole -eq [Windows.Forms.AccessibleRole]::PushButton -and @($cornerButtons | Where-Object { $_.Cursor -ne [Windows.Forms.Cursors]::Hand }).Count -eq 0) 'Only the open/close label and actual corner-bar buttons must use clickable affordances'
+    $onClick = [Windows.Forms.Control].GetMethod('OnClick',$flags)
+    $onClick.Invoke($passiveControls[0],@([EventArgs]::Empty))
+    Assert (-not $app.Visible) 'Clicking a passive corner-bar surface must not open the dashboard'
+    $onClick.Invoke($heading,@([EventArgs]::Empty))
+    [System.Windows.Forms.Application]::DoEvents()
+    Assert ($app.Visible) 'The invisible hit area around Click to open must open the dashboard'
+    $onClick.Invoke($heading,@([EventArgs]::Empty))
+    [System.Windows.Forms.Application]::DoEvents()
+    Assert (-not $app.Visible) 'The same invisible hit area must close the dashboard'
     $createParams = $corner.GetType().GetProperty('CreateParams', $flags).GetValue($corner, $null)
     Assert (($createParams.ExStyle -band 0x08000000) -ne 0) 'Corner must not activate when shown'
     $corner.MinimizeToTaskbar()

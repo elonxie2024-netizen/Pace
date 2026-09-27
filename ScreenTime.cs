@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.10.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.10.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.11.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.11.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -164,7 +164,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.10";
+    const string PaceVersion="0.2.11";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;

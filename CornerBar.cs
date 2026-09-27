@@ -29,8 +29,9 @@ public sealed class CornerBar : Form {
         AutoScaleMode=AutoScaleMode.Dpi; ClientSize=new Size(438,112);
         FormBorderStyle=FormBorderStyle.None; StartPosition=FormStartPosition.Manual;
         ShowInTaskbar=false; TopMost=true; BackColor=Color.FromArgb(35,67,58);
-        Font=new Font("Segoe UI",10); Cursor=Cursors.Hand;
+        Font=new Font("Segoe UI",10); Cursor=Cursors.SizeAll;
         heading=LabelAt("PACE  /  Click to open",16,9,195,18,9);
+        heading.Cursor=Cursors.Hand; heading.AccessibleRole=AccessibleRole.PushButton; heading.AccessibleName="Open or close Pace"; heading.Click+=Open;
         endDay=ActionButton("End day",220,7,58,22); endDay.Click+=delegate { if(EndDayClicked!=null)EndDayClicked(this,EventArgs.Empty); };
         trackingHealth=LabelAt("● ACTIVE",286,9,80,18,7.5f); trackingHealth.TextAlign=ContentAlignment.MiddleRight; trackingHealth.ForeColor=Color.FromArgb(179,224,189);
         minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { MinimizeToTaskbar(); };
@@ -46,9 +47,7 @@ public sealed class CornerBar : Form {
         takeBreak=ActionButton("Break",370,30,52,22); takeBreak.Click+=delegate { if(TakeBreakClicked!=null)TakeBreakClicked(this,EventArgs.Empty); };
         progress=new ProgressBar { Location=new Point(16,94),Size=new Size(406,5),Maximum=1000 };
         Controls.Add(progress);
-        foreach(Control control in Controls)control.Click+=Open;
-        addTime.Click-=Open; takeBreak.Click-=Open; endDay.Click-=Open; minimize.Click-=Open; resetPosition.Click-=Open;
-        Click+=Open;
+        foreach(Control control in new Control[] { trackingHealth,reason,allottedTitle,usedTitle,nextTitle,allotted,used,next,progress })MakeDragSurface(control);
         MouseDown+=DragFromEmptySpace;
         FormClosing+=delegate(object s,FormClosingEventArgs e) { if(e.CloseReason==CloseReason.UserClosing)e.Cancel=true; };
         SizeChanged+=delegate { ApplyRoundedRegion(); if(!changingWindowMode && IsMinimized && WindowState==FormWindowState.Normal)RestoreBar(); };
@@ -58,6 +57,7 @@ public sealed class CornerBar : Form {
     [DllImport("user32.dll")] static extern bool ReleaseCapture();
     [DllImport("user32.dll")] static extern IntPtr SendMessage(IntPtr hWnd,int msg,int wParam,int lParam);
     void DragFromEmptySpace(object sender,MouseEventArgs e) { if(e.Button!=MouseButtons.Left)return; userPositioned=true; ReleaseCapture(); SendMessage(Handle,0xA1,2,0); if(UserPositionChanged!=null)UserPositionChanged(this,EventArgs.Empty); }
+    void MakeDragSurface(Control control) { control.Cursor=Cursors.SizeAll; control.MouseDown+=DragFromEmptySpace; }
     Label LabelAt(string text,int x,int y,int w,int h,float size) {
         Label label=new Label { Text=text,Location=new Point(x,y),Size=new Size(w,h),ForeColor=Color.FromArgb(240,246,230),Font=new Font("Segoe UI",size),AutoEllipsis=true };
         Controls.Add(label); return label;
