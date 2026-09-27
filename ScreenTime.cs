@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.11.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.11.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.12.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.12.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -164,7 +164,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.11";
+    const string PaceVersion="0.2.12";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -210,6 +210,9 @@ public class ScreenTime : Form {
     int cleanupLastPing=-1;
     BreakScreen breakScreen;
     CornerBar cornerBar;
+    PauseOverlay appPauseOverlay;
+    bool paused,pausedToastWasVisible,pausedFocusToastWasVisible;
+    DateTime pausedAtUtc;
     readonly AlertSound alertSound=new AlertSound();
     bool cornerStarted;
     NumericUpDown alertVolume;
@@ -308,7 +311,9 @@ public class ScreenTime : Form {
         enableStartup=ButtonAt(health,"Turn on launch at sign-in",610,20,198,38,delegate { if(startupItem!=null)startupItem.Checked=true; else SetStartWithWindows(true); RefreshTrackingHealth(); });
         trackingTimeline=new TrackingHealthTimeline { Location=new Point(18,120),Size=new Size(790,88) }; health.Controls.Add(trackingTimeline);
         trackingEvents=new ListBox { Location=new Point(18,214),Size=new Size(790,38),BorderStyle=BorderStyle.None,HorizontalScrollbar=true,BackColor=Color.FromArgb(252,251,247) }; health.Controls.Add(trackingEvents);
-        cornerBar=new CornerBar(); cornerBar.Icon=Icon; if(state.CornerPositioned)cornerBar.RestoreSavedPosition(state.CornerX,state.CornerY); cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartManualShutdown(); }; cornerBar.UserPositionChanged+=delegate { state.CornerPositioned=true; state.CornerX=cornerBar.Left; state.CornerY=cornerBar.Top; Save(); }; cornerBar.PositionReset+=delegate { state.CornerPositioned=false; Save(); };
+        cornerBar=new CornerBar(); cornerBar.Icon=Icon; if(state.CornerPositioned)cornerBar.RestoreSavedPosition(state.CornerX,state.CornerY); cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartManualShutdown(); }; cornerBar.PauseClicked+=delegate { TogglePause(); }; cornerBar.UserPositionChanged+=delegate { state.CornerPositioned=true; state.CornerX=cornerBar.Left; state.CornerY=cornerBar.Top; Save(); }; cornerBar.PositionReset+=delegate { state.CornerPositioned=false; Save(); };
+        appPauseOverlay=new PauseOverlay(); appPauseOverlay.ResumeRequested+=delegate { ResumeAll(); }; Controls.Add(appPauseOverlay);
+        VisibleChanged+=delegate { if(paused && Visible)appPauseOverlay.Cover(this); };
         tray=new NotifyIcon { Icon=Icon??SystemIcons.Application,Text="Pace",Visible=true };
         ContextMenuStrip menu=new ContextMenuStrip();
         menu.Items.Add("Open Pace",null,delegate { cornerBar.RestoreBar(); Show(); WindowState=FormWindowState.Normal; Activate(); cornerBar.SetDashboardOpen(true); });
@@ -553,8 +558,30 @@ public class ScreenTime : Form {
         state.PlanChanges.Add(new PlanChange { WeekStart=Settings.Monday(DateTime.Now).ToString("yyyy-MM-dd"), ChangedAt=DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Summary="Carried forward from the previous week" });
         Save();
     }
+    void TogglePause() { if(paused)ResumeAll(); else PauseAll(); }
+    void PauseAll() {
+        if(paused)return;
+        FlushForegroundActivity(); paused=true; pausedAtUtc=DateTime.UtcNow;
+        pausedToastWasVisible=toast!=null && !toast.IsDisposed && toast.Visible;
+        pausedFocusToastWasVisible=focusToast!=null && !focusToast.IsDisposed && focusToast.Visible;
+        if(cleanupTimer!=null)cleanupTimer.Stop(); alertSound.Stop();
+        if(pausedToastWasVisible)toast.Hide(); if(pausedFocusToastWasVisible)focusToast.Hide();
+        appPauseOverlay.Cover(this); cornerBar.SetPaused(true); last=watch.Elapsed.TotalSeconds; Save();
+    }
+    void ResumeAll() {
+        if(!paused)return;
+        TimeSpan pausedFor=DateTime.UtcNow-pausedAtUtc;
+        if(cleanupActive && !cleanupClosesPlan)cleanupUntil=cleanupUntil.Add(pausedFor);
+        if(state.BreakUntil!=DateTime.MinValue)state.BreakUntil=state.BreakUntil.Add(pausedFor);
+        paused=false; appPauseOverlay.Uncover(); cornerBar.SetPaused(false); last=watch.Elapsed.TotalSeconds;
+        if(cleanupTimer!=null)cleanupTimer.Start();
+        if(pausedToastWasVisible && toast!=null && !toast.IsDisposed)toast.Show();
+        if(pausedFocusToastWasVisible && focusToast!=null && !focusToast.IsDisposed)focusToast.Show();
+        pausedToastWasVisible=false; pausedFocusToastWasVisible=false; RefreshView(); PositionReminder(); Save();
+    }
     void Tick() {
         double now=watch.Elapsed.TotalSeconds, elapsed=now-last; last=now;
+        if(paused)return;
         // A suspended system must not accrue the elapsed sleep interval.
         if(elapsed>5)elapsed=0;
         string currentDate=DateTime.Now.ToString("yyyy-MM-dd"); if(day.Date!=currentDate) { FlushForegroundActivity(); Today(); elapsed=0; ResetForNewDay(); todayLabel.Text="TODAY  "+DateTime.Now.ToString("dddd, MMM d"); ResetWeekPicker(); }
@@ -910,6 +937,10 @@ public class ScreenTime : Form {
     class Reminder : Form {
         protected override bool ShowWithoutActivation { get { return true; } }
         protected override CreateParams CreateParams { get { CreateParams p=base.CreateParams; p.ExStyle|=0x08000000|0x00000080; return p; } }
+    }
+    protected override void WndProc(ref Message message) {
+        if(paused && (message.Msg==0x00A1 || message.Msg==0x00A4 || message.Msg==0x00A7))ResumeAll();
+        base.WndProc(ref message);
     }
     [STAThread] public static void Main(string[] args) { bool created; using(var mutex=new Mutex(true,"Local\\TrustScreenTime",out created)) { if(!created) { MessageBox.Show("Pace is already running. Open it from the system tray."); return; } Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ScreenTime()); } }
 }

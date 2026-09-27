@@ -4,6 +4,40 @@ using System.Windows.Forms;
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
 
+public sealed class PauseOverlay : Control {
+    Bitmap snapshot;
+    [DllImport("user32.dll")] static extern bool PrintWindow(IntPtr window,IntPtr deviceContext,uint flags);
+    public event EventHandler ResumeRequested;
+    public PauseOverlay() {
+        Dock=DockStyle.Fill; Visible=false; Cursor=Cursors.Hand; TabStop=true;
+        AccessibleName="Pace is paused. Click anywhere to resume."; AccessibleRole=AccessibleRole.PushButton;
+        SetStyle(ControlStyles.UserPaint|ControlStyles.AllPaintingInWmPaint|ControlStyles.OptimizedDoubleBuffer,true);
+        MouseDown+=delegate { if(ResumeRequested!=null)ResumeRequested(this,EventArgs.Empty); };
+    }
+    public void Cover(Control parent) {
+        Visible=false;
+        if(snapshot!=null) { snapshot.Dispose(); snapshot=null; }
+        if(parent.ClientSize.Width>0 && parent.ClientSize.Height>0) {
+            snapshot=new Bitmap(parent.ClientSize.Width,parent.ClientSize.Height);
+            bool printed=false;
+            if(parent.IsHandleCreated)using(Graphics graphics=Graphics.FromImage(snapshot)) { IntPtr context=graphics.GetHdc(); try { printed=PrintWindow(parent.Handle,context,1); } finally { graphics.ReleaseHdc(context); } }
+            if(!printed)parent.DrawToBitmap(snapshot,new Rectangle(Point.Empty,parent.ClientSize));
+        }
+        Visible=true; BringToFront(); Focus(); Invalidate();
+    }
+    public void Uncover() { Visible=false; if(snapshot!=null) { snapshot.Dispose(); snapshot=null; } }
+    protected override void OnPaint(PaintEventArgs e) {
+        if(snapshot!=null)e.Graphics.DrawImageUnscaled(snapshot,Point.Empty);
+        using(SolidBrush dim=new SolidBrush(Color.FromArgb(105,35,39,38)))e.Graphics.FillRectangle(dim,ClientRectangle);
+        float size=Math.Max(38,Math.Min(Width,Height)*.48f);
+        using(Font font=new Font("Segoe UI Symbol",size,FontStyle.Bold,GraphicsUnit.Pixel))
+        using(SolidBrush symbol=new SolidBrush(Color.FromArgb(150,205,210,208))) {
+            using(StringFormat format=new StringFormat { Alignment=StringAlignment.Center,LineAlignment=StringAlignment.Center })e.Graphics.DrawString("\u23F8",font,symbol,ClientRectangle,format);
+        }
+    }
+    protected override void Dispose(bool disposing) { if(disposing && snapshot!=null) { snapshot.Dispose(); snapshot=null; } base.Dispose(disposing); }
+}
+
 // A separate, unowned window stays visible when the dashboard is hidden/minimized.
 public sealed class CornerBar : Form {
     public bool IsMinimized { get; private set; }
@@ -15,13 +49,16 @@ public sealed class CornerBar : Form {
     readonly Label allotted, used, next, nextTitle, heading, allottedTitle, usedTitle, reason,trackingHealth;
     readonly Button addTime, takeBreak;
     readonly Button endDay;
+    readonly Button pause;
     readonly Button minimize;
     readonly Button resetPosition;
     readonly ProgressBar progress;
+    readonly PauseOverlay pauseOverlay;
     public event EventHandler OpenDashboard;
     public event EventHandler AddTimeClicked;
     public event EventHandler TakeBreakClicked;
     public event EventHandler EndDayClicked;
+    public event EventHandler PauseClicked;
     public event EventHandler UserPositionChanged;
     public event EventHandler PositionReset;
     public CornerBar() {
@@ -33,7 +70,8 @@ public sealed class CornerBar : Form {
         heading=LabelAt("PACE  /  Click to open",16,9,195,18,9);
         heading.Cursor=Cursors.Hand; heading.AccessibleRole=AccessibleRole.PushButton; heading.AccessibleName="Open or close Pace"; heading.Click+=Open;
         endDay=ActionButton("End day",220,7,58,22); endDay.Click+=delegate { if(EndDayClicked!=null)EndDayClicked(this,EventArgs.Empty); };
-        trackingHealth=LabelAt("● ACTIVE",286,9,80,18,7.5f); trackingHealth.TextAlign=ContentAlignment.MiddleRight; trackingHealth.ForeColor=Color.FromArgb(179,224,189);
+        pause=ActionButton("\u23F8",282,7,28,22); pause.AccessibleName="Pause Pace"; pause.Font=new Font("Segoe UI Symbol",9); pause.Click+=delegate { if(PauseClicked!=null)PauseClicked(this,EventArgs.Empty); };
+        trackingHealth=LabelAt("● ACTIVE",314,9,52,18,7.5f); trackingHealth.TextAlign=ContentAlignment.MiddleRight; trackingHealth.ForeColor=Color.FromArgb(179,224,189);
         minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { MinimizeToTaskbar(); };
         resetPosition=ActionButton("⌂",378,7,20,20); resetPosition.Font=new Font("Segoe UI Symbol",10); resetPosition.Click+=delegate { ResetPosition(); };
         reason=LabelAt("",16,34,406,50,13.5f); reason.Visible=false; reason.TextAlign=ContentAlignment.MiddleCenter; reason.BackColor=Color.FromArgb(48,85,72);
@@ -48,6 +86,7 @@ public sealed class CornerBar : Form {
         progress=new ProgressBar { Location=new Point(16,94),Size=new Size(406,5),Maximum=1000 };
         Controls.Add(progress);
         foreach(Control control in new Control[] { trackingHealth,reason,allottedTitle,usedTitle,nextTitle,allotted,used,next,progress })MakeDragSurface(control);
+        pauseOverlay=new PauseOverlay(); pauseOverlay.ResumeRequested+=delegate { if(PauseClicked!=null)PauseClicked(this,EventArgs.Empty); }; Controls.Add(pauseOverlay);
         MouseDown+=DragFromEmptySpace;
         FormClosing+=delegate(object s,FormClosingEventArgs e) { if(e.CloseReason==CloseReason.UserClosing)e.Cancel=true; };
         SizeChanged+=delegate { ApplyRoundedRegion(); if(!changingWindowMode && IsMinimized && WindowState==FormWindowState.Normal)RestoreBar(); };
@@ -108,7 +147,7 @@ public sealed class CornerBar : Form {
     public void SetDarkMode(bool dark) {
         BackColor=dark?Color.FromArgb(22,38,33):Color.FromArgb(35,67,58);
         foreach(Label label in new[]{allotted,used,next,nextTitle,heading,allottedTitle,usedTitle})label.ForeColor=Color.FromArgb(240,246,230);
-        foreach(Button button in new[]{addTime,takeBreak,endDay,minimize,resetPosition}) { button.BackColor=dark?Color.FromArgb(49,91,75):Color.FromArgb(76,139,113); button.FlatAppearance.MouseOverBackColor=dark?Color.FromArgb(64,116,96):Color.FromArgb(93,157,130); }
+        foreach(Button button in new[]{addTime,takeBreak,endDay,pause,minimize,resetPosition}) { button.BackColor=dark?Color.FromArgb(49,91,75):Color.FromArgb(76,139,113); button.FlatAppearance.MouseOverBackColor=dark?Color.FromArgb(64,116,96):Color.FromArgb(93,157,130); }
         reason.BackColor=noticeWarning?(dark?Color.FromArgb(91,70,38):Color.FromArgb(104,84,54)):(dark?Color.FromArgb(35,63,53):Color.FromArgb(48,85,72));
         SetTrackingHealth(!trackingHealth.Text.Contains("UNSAVED")); Invalidate(true);
     }
@@ -132,4 +171,5 @@ public sealed class CornerBar : Form {
     }
     public void ResetPosition() { userPositioned=false; PlaceInCorner(Screen.PrimaryScreen.WorkingArea); if(PositionReset!=null)PositionReset(this,EventArgs.Empty); }
     public void SetDashboardOpen(bool open) { heading.Text=open?"PACE  /  Click to close":"PACE  /  Click to open"; }
+    public void SetPaused(bool paused) { if(paused)pauseOverlay.Cover(this); else pauseOverlay.Uncover(); }
 }

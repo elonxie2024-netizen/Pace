@@ -190,9 +190,13 @@ try {
     $passiveControls = @($passiveNames | ForEach-Object { $corner.GetType().GetField($_,$flags).GetValue($corner) })
     Assert ($corner.Cursor -eq [Windows.Forms.Cursors]::SizeAll -and @($passiveControls | Where-Object { $_.Cursor -ne [Windows.Forms.Cursors]::SizeAll }).Count -eq 0) 'Every passive corner-bar surface must be draggable'
     $heading = $corner.GetType().GetField('heading',$flags).GetValue($corner)
-    $buttonNames = @('addTime','takeBreak','endDay','minimize','resetPosition')
+    $buttonNames = @('addTime','takeBreak','endDay','pause','minimize','resetPosition')
     $cornerButtons = @($buttonNames | ForEach-Object { $corner.GetType().GetField($_,$flags).GetValue($corner) })
     Assert ($heading.Cursor -eq [Windows.Forms.Cursors]::Hand -and $heading.AccessibleRole -eq [Windows.Forms.AccessibleRole]::PushButton -and @($cornerButtons | Where-Object { $_.Cursor -ne [Windows.Forms.Cursors]::Hand }).Count -eq 0) 'Only the open/close label and actual corner-bar buttons must use clickable affordances'
+    $endDayButton = $corner.GetType().GetField('endDay',$flags).GetValue($corner)
+    $pauseButton = $corner.GetType().GetField('pause',$flags).GetValue($corner)
+    $trackingLabel = $corner.GetType().GetField('trackingHealth',$flags).GetValue($corner)
+    Assert ($pauseButton.Left -gt $endDayButton.Right -and $pauseButton.Right -lt $trackingLabel.Left) 'The pause button must sit between End day and tracking status without overlap'
     $onClick = [Windows.Forms.Control].GetMethod('OnClick',$flags)
     $onClick.Invoke($passiveControls[0],@([EventArgs]::Empty))
     Assert (-not $app.Visible) 'Clicking a passive corner-bar surface must not open the dashboard'
@@ -202,6 +206,22 @@ try {
     $onClick.Invoke($heading,@([EventArgs]::Empty))
     [System.Windows.Forms.Application]::DoEvents()
     Assert (-not $app.Visible) 'The same invisible hit area must close the dashboard'
+    $onClick.Invoke($heading,@([EventArgs]::Empty))
+    [System.Windows.Forms.Application]::DoEvents()
+    $usedBeforePause = $day.Used; $reminderBeforePause = $day.SinceReminder
+    $onClick.Invoke($pauseButton,@([EventArgs]::Empty)); [System.Windows.Forms.Application]::DoEvents()
+    $appPauseOverlay = Field 'appPauseOverlay'
+    $cornerPauseOverlay = $corner.GetType().GetField('pauseOverlay',$flags).GetValue($corner)
+    Assert ((Field 'paused') -and $appPauseOverlay.Visible -and $cornerPauseOverlay.Visible) 'Pausing must cover both Pace windows with the resume overlay'
+    Start-Sleep -Milliseconds 1100; Call 'Tick'
+    Assert ($day.Used -eq $usedBeforePause -and $day.SinceReminder -eq $reminderBeforePause) 'Screen time and reminder time must remain frozen while Pace is paused'
+    $onMouseDown = [Windows.Forms.Control].GetMethod('OnMouseDown',$flags)
+    $resumeClick = New-Object Windows.Forms.MouseEventArgs ([Windows.Forms.MouseButtons]::Left),1,10,10,0
+    $onMouseDown.Invoke($cornerPauseOverlay,@($resumeClick.PSObject.BaseObject)); [System.Windows.Forms.Application]::DoEvents()
+    Assert (-not (Field 'paused') -and -not $appPauseOverlay.Visible -and -not $cornerPauseOverlay.Visible) 'Clicking the paused corner bar must resume Pace'
+    Call 'PauseAll'; $onMouseDown.Invoke($appPauseOverlay,@($resumeClick.PSObject.BaseObject)); [System.Windows.Forms.Application]::DoEvents()
+    Assert (-not (Field 'paused')) 'Clicking the paused dashboard must resume Pace'
+    $app.Hide()
     $createParams = $corner.GetType().GetProperty('CreateParams', $flags).GetValue($corner, $null)
     Assert (($createParams.ExStyle -band 0x08000000) -ne 0) 'Corner must not activate when shown'
     $corner.MinimizeToTaskbar()
