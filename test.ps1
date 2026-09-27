@@ -91,13 +91,17 @@ try {
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=[datetime]::Today.AddHours(1).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Locked'; Start=[datetime]::Today.AddHours(2).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Unlocked'; Start=[datetime]::Today.AddHours(3).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Paused'; Start=[datetime]::Today.AddHours(3.25).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Resumed'; Start=[datetime]::Today.AddHours(3.75).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Stopped'; Start=[datetime]::Today.AddHours(4).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Gap'; Start=[datetime]::Today.AddHours(4).ToString('o'); End=[datetime]::Today.AddHours(5).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=[datetime]::Today.AddHours(5).ToString('o') }))
     $timelineModel = New-Object TrackingHealthTimeline
-    $timelineModel.SetData($timelineRecords,$timelineNow,$true,$false)
-    Assert ([Math]::Abs($timelineModel.TrackedSeconds-14400) -lt 1 -and [Math]::Abs($timelineModel.PausedSeconds-3600) -lt 1 -and [Math]::Abs($timelineModel.GapSeconds-3600) -lt 1) 'Tracking timeline must distinguish tracked, paused, and untracked intervals'
-    Assert ($timelineModel.AccessibleDescription -like '*tracked*locked or asleep*not tracked*') 'Tracking timeline must describe its visual data accessibly'
+    $timelineModel.SetData($timelineRecords,$timelineNow,$true,$false,$false)
+    Assert ([Math]::Abs($timelineModel.TrackedSeconds-12600) -lt 1 -and [Math]::Abs($timelineModel.ManualPausedSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.PausedSeconds-3600) -lt 1 -and [Math]::Abs($timelineModel.GapSeconds-3600) -lt 1) 'Tracking timeline must distinguish tracked, manually paused, locked or asleep, and untracked intervals'
+    $manualPauseColor = $timelineModel.GetType().GetField('manualPaused',$flags).GetValue($timelineModel)
+    $gapColor = $timelineModel.GetType().GetField('gap',$flags).GetValue($timelineModel)
+    Assert ($manualPauseColor -ne $gapColor -and $timelineModel.AccessibleDescription -like '*tracked*manually paused*locked or asleep*not tracked*') 'Manual pauses must use a distinct color and accessible label instead of appearing as tracking gaps'
     $healthTimeline = Field 'trackingTimeline'
     Assert ($healthTimeline.AccessibleRole -eq [Windows.Forms.AccessibleRole]::Graphic -and $healthTimeline.Bottom -lt (Field 'trackingEvents').Top) 'Tracking timeline must fit above recent events without overlap'
     $timelineModel.Dispose()
@@ -212,13 +216,13 @@ try {
     $onClick.Invoke($pauseButton,@([EventArgs]::Empty)); [System.Windows.Forms.Application]::DoEvents()
     $appPauseOverlay = Field 'appPauseOverlay'
     $cornerPauseOverlay = $corner.GetType().GetField('pauseOverlay',$flags).GetValue($corner)
-    Assert ((Field 'paused') -and $appPauseOverlay.Visible -and $cornerPauseOverlay.Visible) 'Pausing must cover both Pace windows with the resume overlay'
+    Assert ((Field 'paused') -and $appPauseOverlay.Visible -and $cornerPauseOverlay.Visible -and $state.TrackingEvents[-1].Kind -eq 'Paused') 'Pausing must cover both Pace windows and record a manual-pause tracking event'
     Start-Sleep -Milliseconds 1100; Call 'Tick'
     Assert ($day.Used -eq $usedBeforePause -and $day.SinceReminder -eq $reminderBeforePause) 'Screen time and reminder time must remain frozen while Pace is paused'
     $onMouseDown = [Windows.Forms.Control].GetMethod('OnMouseDown',$flags)
     $resumeClick = New-Object Windows.Forms.MouseEventArgs ([Windows.Forms.MouseButtons]::Left),1,10,10,0
     $onMouseDown.Invoke($cornerPauseOverlay,@($resumeClick.PSObject.BaseObject)); [System.Windows.Forms.Application]::DoEvents()
-    Assert (-not (Field 'paused') -and -not $appPauseOverlay.Visible -and -not $cornerPauseOverlay.Visible) 'Clicking the paused corner bar must resume Pace'
+    Assert (-not (Field 'paused') -and -not $appPauseOverlay.Visible -and -not $cornerPauseOverlay.Visible -and $state.TrackingEvents[-1].Kind -eq 'Resumed') 'Clicking the paused corner bar must resume Pace and close its tracking interval'
     Call 'PauseAll'; $onMouseDown.Invoke($appPauseOverlay,@($resumeClick.PSObject.BaseObject)); [System.Windows.Forms.Application]::DoEvents()
     Assert (-not (Field 'paused')) 'Clicking the paused dashboard must resume Pace'
     $app.Hide()

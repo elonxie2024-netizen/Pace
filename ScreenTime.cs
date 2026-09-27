@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.12.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.12.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.13.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.13.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -164,7 +164,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.12";
+    const string PaceVersion="0.2.13";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -561,7 +561,7 @@ public class ScreenTime : Form {
     void TogglePause() { if(paused)ResumeAll(); else PauseAll(); }
     void PauseAll() {
         if(paused)return;
-        FlushForegroundActivity(); paused=true; pausedAtUtc=DateTime.UtcNow;
+        FlushForegroundActivity(); paused=true; pausedAtUtc=DateTime.UtcNow; LogTrackingEvent("Paused",DateTime.Now,DateTime.MinValue,"Pace was manually paused."); Heartbeat();
         pausedToastWasVisible=toast!=null && !toast.IsDisposed && toast.Visible;
         pausedFocusToastWasVisible=focusToast!=null && !focusToast.IsDisposed && focusToast.Visible;
         if(cleanupTimer!=null)cleanupTimer.Stop(); alertSound.Stop();
@@ -573,15 +573,15 @@ public class ScreenTime : Form {
         TimeSpan pausedFor=DateTime.UtcNow-pausedAtUtc;
         if(cleanupActive && !cleanupClosesPlan)cleanupUntil=cleanupUntil.Add(pausedFor);
         if(state.BreakUntil!=DateTime.MinValue)state.BreakUntil=state.BreakUntil.Add(pausedFor);
-        paused=false; appPauseOverlay.Uncover(); cornerBar.SetPaused(false); last=watch.Elapsed.TotalSeconds;
+        paused=false; LogTrackingEvent("Resumed",DateTime.Now,DateTime.MinValue,"Pace resumed after a manual pause."); Heartbeat(); appPauseOverlay.Uncover(); cornerBar.SetPaused(false); last=watch.Elapsed.TotalSeconds;
         if(cleanupTimer!=null)cleanupTimer.Start();
         if(pausedToastWasVisible && toast!=null && !toast.IsDisposed)toast.Show();
         if(pausedFocusToastWasVisible && focusToast!=null && !focusToast.IsDisposed)focusToast.Show();
-        pausedToastWasVisible=false; pausedFocusToastWasVisible=false; RefreshView(); PositionReminder(); Save();
+        pausedToastWasVisible=false; pausedFocusToastWasVisible=false; RefreshView(); RefreshTrackingHealth(); PositionReminder(); Save();
     }
     void Tick() {
         double now=watch.Elapsed.TotalSeconds, elapsed=now-last; last=now;
-        if(paused)return;
+        if(paused) { if(++ticks%15==0) { Heartbeat(); Save(); } return; }
         // A suspended system must not accrue the elapsed sleep interval.
         if(elapsed>5)elapsed=0;
         string currentDate=DateTime.Now.ToString("yyyy-MM-dd"); if(day.Date!=currentDate) { FlushForegroundActivity(); Today(); elapsed=0; ResetForNewDay(); todayLabel.Text="TODAY  "+DateTime.Now.ToString("dddd, MMM d"); ResetWeekPicker(); }
@@ -865,7 +865,7 @@ public class ScreenTime : Form {
         trackingHealthTitle.Text=saveFailed?"● Tracking, but not saving":"● Tracking now"; trackingHealthTitle.ForeColor=saveFailed?PaceTheme.Warning:green;
         trackingHealthDetail.Text=(saveFailed?"Pace cannot save its heartbeat or usage. Check the Pace data-folder permissions.":"The heartbeat is current. Screen-time tracking is active.")+(gapToday>0?"  "+FormatDuration(gapToday)+" was not tracked today.":"  No tracking gaps today.");
         trackingLaunchStatus.Text=startup?"Launch at sign-in is on, so Pace can begin with Windows.":"Launch at sign-in is off. Pace cannot track until you open it."; trackingLaunchStatus.ForeColor=startup?PaceTheme.Muted:PaceTheme.Warning; enableStartup.Visible=!startup;
-        trackingTimeline.SetData(state.TrackingEvents,DateTime.Now,state.TrackingSessionOpen,sessionLocked||sessionSuspended);
+        trackingTimeline.SetData(state.TrackingEvents,DateTime.Now,state.TrackingSessionOpen,sessionLocked||sessionSuspended,paused);
         trackingEvents.BeginUpdate(); trackingEvents.Items.Clear();
         int first=Math.Max(0,state.TrackingEvents.Count-100); for(int i=state.TrackingEvents.Count-1;i>=first;i--)trackingEvents.Items.Add(TrackingEventLine(state.TrackingEvents[i]));
         if(trackingEvents.Items.Count==0)trackingEvents.Items.Add("No tracking events recorded yet."); trackingEvents.EndUpdate();
