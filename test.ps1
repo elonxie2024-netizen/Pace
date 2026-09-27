@@ -168,6 +168,19 @@ try {
     Assert ($corner.Visible -and -not $app.Visible -and $corner.TopMost) 'Corner must remain visible above other windows when dashboard is hidden'
     $createParams = $corner.GetType().GetProperty('CreateParams', $flags).GetValue($corner, $null)
     Assert (($createParams.ExStyle -band 0x08000000) -ne 0) 'Corner must not activate when shown'
+    $corner.MinimizeToTaskbar()
+    [System.Windows.Forms.Application]::DoEvents()
+    $minimizedParams = $corner.GetType().GetProperty('CreateParams', $flags).GetValue($corner, $null)
+    Assert ($corner.IsMinimized -and $corner.ShowInTaskbar -and $corner.WindowState -eq [Windows.Forms.FormWindowState]::Minimized) 'Minimizing the corner bar must create a real taskbar entry'
+    Assert (($minimizedParams.ExStyle -band 0x00040000) -ne 0 -and ($minimizedParams.ExStyle -band 0x00000080) -eq 0) 'The minimized bar must use an app-window style instead of a hidden tool-window style'
+    $corner.RestoreBar()
+    [System.Windows.Forms.Application]::DoEvents()
+    Assert (-not $corner.IsMinimized -and -not $corner.ShowInTaskbar -and $corner.Visible -and $corner.WindowState -eq [Windows.Forms.FormWindowState]::Normal) 'Restoring the corner bar must make it visible and remove only its temporary taskbar entry'
+    $corner.GetType().GetField('userPositioned',$flags).SetValue($corner,$true)
+    $corner.Location = New-Object Drawing.Point 99999,99999
+    $corner.EnsureVisible()
+    $visibleArea = [Windows.Forms.Screen]::FromControl($corner).WorkingArea
+    Assert ($corner.Left -ge $visibleArea.Left -and $corner.Right -le $visibleArea.Right -and $corner.Top -ge $visibleArea.Top -and $corner.Bottom -le $visibleArea.Bottom) 'The corner bar must return inside a current screen after a display-layout change'
     $app.GetType().GetMethod('Notify', $flags).Invoke($app, @('Test reminder', 'Silent layout verification'))
     $toast = Field 'toast'
     Assert ($toast.Bottom -lt $corner.Top) 'Reminder must sit above the persistent corner bar'

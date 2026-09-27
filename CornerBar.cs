@@ -33,7 +33,7 @@ public sealed class CornerBar : Form {
         heading=LabelAt("PACE  /  Click to open",16,9,195,18,9);
         endDay=ActionButton("End day",220,7,58,22); endDay.Click+=delegate { if(EndDayClicked!=null)EndDayClicked(this,EventArgs.Empty); };
         trackingHealth=LabelAt("● ACTIVE",286,9,80,18,7.5f); trackingHealth.TextAlign=ContentAlignment.MiddleRight; trackingHealth.ForeColor=Color.FromArgb(179,224,189);
-        minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { changingWindowMode=true; IsMinimized=true; ShowInTaskbar=true; RecreateHandle(); WindowState=FormWindowState.Minimized; changingWindowMode=false; };
+        minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { MinimizeToTaskbar(); };
         resetPosition=ActionButton("⌂",378,7,20,20); resetPosition.Font=new Font("Segoe UI Symbol",10); resetPosition.Click+=delegate { ResetPosition(); };
         reason=LabelAt("",16,34,406,50,13.5f); reason.Visible=false; reason.TextAlign=ContentAlignment.MiddleCenter; reason.BackColor=Color.FromArgb(48,85,72);
         allottedTitle=LabelAt("ALLOTTED",16,34,75,18,8);
@@ -51,7 +51,7 @@ public sealed class CornerBar : Form {
         Click+=Open;
         MouseDown+=DragFromEmptySpace;
         FormClosing+=delegate(object s,FormClosingEventArgs e) { if(e.CloseReason==CloseReason.UserClosing)e.Cancel=true; };
-        SizeChanged+=delegate { ApplyRoundedRegion(); if(!changingWindowMode && IsMinimized && WindowState==FormWindowState.Normal) { changingWindowMode=true; IsMinimized=false; ShowInTaskbar=false; RecreateHandle(); changingWindowMode=false; BringToFront(); } };
+        SizeChanged+=delegate { ApplyRoundedRegion(); if(!changingWindowMode && IsMinimized && WindowState==FormWindowState.Normal)RestoreBar(); };
         ApplyRoundedRegion();
     }
     [DllImport("user32.dll")] static extern bool ReleaseCapture();
@@ -106,7 +106,22 @@ public sealed class CornerBar : Form {
     public void SetTrackingHealth(bool saving) { trackingHealth.Text=saving?"● ACTIVE":"● UNSAVED"; trackingHealth.ForeColor=saving?Color.FromArgb(179,224,189):Color.FromArgb(255,190,125); UpdateAccessibleDescription(); }
     public void PlaceInCorner(Rectangle area) { if(!userPositioned)Location=new Point(Math.Max(area.Left,area.Right-Width-16),Math.Max(area.Top,area.Bottom-Height-16)); }
     public void RestoreSavedPosition(int x,int y) { Point requested=new Point(x,y); Rectangle area=Screen.FromPoint(requested).WorkingArea; userPositioned=true; Location=new Point(Math.Max(area.Left,Math.Min(x,area.Right-Width)),Math.Max(area.Top,Math.Min(y,area.Bottom-Height))); }
-    public void RestoreBar() { changingWindowMode=true; IsMinimized=false; WindowState=FormWindowState.Normal; ShowInTaskbar=false; RecreateHandle(); changingWindowMode=false; Show(); BringToFront(); }
+    public void EnsureVisible() {
+        if(IsMinimized)return;
+        Rectangle area=Screen.FromRectangle(Bounds).WorkingArea;
+        Point safe=new Point(Math.Max(area.Left,Math.Min(Left,area.Right-Width)),Math.Max(area.Top,Math.Min(Top,area.Bottom-Height)));
+        if(Location==safe)return;
+        Location=safe; if(userPositioned && UserPositionChanged!=null)UserPositionChanged(this,EventArgs.Empty);
+    }
+    public void MinimizeToTaskbar() {
+        changingWindowMode=true; IsMinimized=true;
+        // ShowInTaskbar updates the native window style itself. Recreating the handle again can orphan the taskbar button.
+        ShowInTaskbar=true; Show(); WindowState=FormWindowState.Minimized; changingWindowMode=false;
+    }
+    public void RestoreBar() {
+        changingWindowMode=true; WindowState=FormWindowState.Normal; IsMinimized=false; ShowInTaskbar=false; changingWindowMode=false;
+        Show(); EnsureVisible(); BringToFront();
+    }
     public void ResetPosition() { userPositioned=false; PlaceInCorner(Screen.PrimaryScreen.WorkingArea); if(PositionReset!=null)PositionReset(this,EventArgs.Empty); }
     public void SetDashboardOpen(bool open) { heading.Text=open?"PACE  /  Click to close":"PACE  /  Click to open"; }
 }
