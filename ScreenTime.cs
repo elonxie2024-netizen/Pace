@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.13.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.13.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.14.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.14.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -164,7 +164,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.13";
+    const string PaceVersion="0.2.14";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -829,7 +829,7 @@ public class ScreenTime : Form {
             NumericUpDown addedHours=new NumericUpDown { Location=new Point(20,56),Minimum=0,Maximum=4,Value=0,Size=new Size(65,30),TextAlign=HorizontalAlignment.Center }; content.Controls.Add(addedHours); AddLabel(content,"hours",92,60,48,28,10);
             NumericUpDown addedMinutes=new NumericUpDown { Location=new Point(148,56),Minimum=0,Maximum=59,Value=15,Increment=5,Size=new Size(65,30),TextAlign=HorizontalAlignment.Center }; content.Controls.Add(addedMinutes); AddLabel(content,"minutes",220,60,70,28,10);
             addedHours.ValueChanged+=delegate { bool maximum=addedHours.Value==4; if(maximum)addedMinutes.Value=0; addedMinutes.Enabled=!maximum; }; Round(addedHours,7); Round(addedMinutes,7);
-            AddLabel(content,"What would you like to finish? A reason is required.",20,102,430,28,10);
+            AddLabel(content,"State your reason",20,102,430,28,10);
             TextBox reason=new TextBox { Location=new Point(20,136),Size=new Size(430,60),Multiline=true,MaxLength=500 }; content.Controls.Add(reason); Round(reason,7);
             ButtonAt(content,"Add time",300,214,150,delegate {
                 int added=(int)addedHours.Value*60+(int)addedMinutes.Value;
