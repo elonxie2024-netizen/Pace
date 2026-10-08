@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.14.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.14.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.15.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.15.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -140,7 +140,8 @@ public class Settings {
     public int Interval = 20, BreakMinutes = 5;
     public int PeriodicWrapMinutes = 1, ClosingWarningMinutes = 3;
     public int MismatchGraceMinutes = 1, MismatchSnoozeMinutes = 5;
-    public int AlertVolume = 85;
+    public int AlertVolume = 70;
+    public string CustomAlertFile="";
     public bool DarkMode;
     public DateTime BreakUntil = DateTime.MinValue;
     public bool BreakWaiting;
@@ -164,7 +165,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.14";
+    const string PaceVersion="0.2.15";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -172,6 +173,7 @@ public class ScreenTime : Form {
     readonly string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "TrustScreenTime");
     string StatePath { get { return Path.Combine(folder,"state.xml"); } }
     string BackupPath { get { return Path.Combine(folder,"state.xml.backup"); } }
+    string CustomAlertPath { get { if(string.IsNullOrWhiteSpace(state.CustomAlertFile))return ""; string path=Path.Combine(folder,Path.GetFileName(state.CustomAlertFile)); return File.Exists(path)?path:""; } }
     Label remaining, detail, status, trackingIndicator,brandLabel,heroLabel,subtitleLabel,timingHelp;
     Panel todayCard;
     ProgressBar progress;
@@ -217,11 +219,12 @@ public class ScreenTime : Form {
     bool cornerStarted;
     NumericUpDown alertVolume;
     Button darkMode;
+    Button useBuiltInSound;
     ListBox activityList;
     ActivityChart activityChart;
     ComboBox activityRange;
     Label activitySummary;
-    Label trackingHealthTitle,trackingHealthDetail,trackingLaunchStatus,settingsStatus;
+    Label trackingHealthTitle,trackingHealthDetail,trackingLaunchStatus,settingsStatus,soundStatus;
     ListBox trackingEvents;
     TrackingHealthTimeline trackingTimeline;
     Button enableStartup;
@@ -301,9 +304,13 @@ public class ScreenTime : Form {
         AddLabel(alerts,"App mismatch grace",420,115,210,25,9); mismatchGrace=new HourMinuteInput(1,60,state.MismatchGraceMinutes) { Location=new Point(638,110) }; alerts.Controls.Add(mismatchGrace);
         AddLabel(alerts,"Mismatch reminder snooze",420,157,210,25,9); mismatchSnooze=new HourMinuteInput(1,240,state.MismatchSnoozeMinutes) { Location=new Point(638,152) }; alerts.Controls.Add(mismatchSnooze);
         AddLabel(alerts,"Alert volume",18,211,100,25,9); alertVolume=new NumericUpDown { Location=new Point(121,206),Size=new Size(65,28),Minimum=0,Maximum=100,Value=state.AlertVolume }; alerts.Controls.Add(alertVolume); AddLabel(alerts,"%",191,211,25,25,9);
-        settingsStatus=AddLabel(alerts,"",225,209,250,27,9); settingsStatus.ForeColor=PaceTheme.Muted;
-        darkMode=new Button { Text=state.DarkMode?"Dark mode: On":"Dark mode: Off",FlatStyle=FlatStyle.Flat,TextAlign=ContentAlignment.MiddleCenter,Location=new Point(490,202),Size=new Size(150,36),Cursor=Cursors.Hand }; darkMode.FlatAppearance.BorderSize=0; alerts.Controls.Add(darkMode); Round(darkMode,9); darkMode.Click+=delegate { DarkModeChanged(); };
+        ButtonAt(alerts,"Import sound",225,202,105,36,delegate { ImportAlertSound(); });
+        useBuiltInSound=ButtonAt(alerts,"Built-in",338,202,94,36,delegate { UseBuiltInAlert(); });
+        ButtonAt(alerts,"Preview",440,202,70,36,delegate { PreviewAlert(); });
+        darkMode=new Button { Text=state.DarkMode?"Dark mode: On":"Dark mode: Off",FlatStyle=FlatStyle.Flat,TextAlign=ContentAlignment.MiddleCenter,Location=new Point(518,202),Size=new Size(130,36),Cursor=Cursors.Hand }; darkMode.FlatAppearance.BorderSize=0; alerts.Controls.Add(darkMode); Round(darkMode,9); darkMode.Click+=delegate { DarkModeChanged(); };
         ButtonAt(alerts,"Save settings",660,202,148,36,delegate { SaveTimingSettings(); });
+        soundStatus=AddLabel(alerts,"",18,242,300,20,9); soundStatus.ForeColor=PaceTheme.Muted;
+        settingsStatus=AddLabel(alerts,"",330,242,478,20,9); settingsStatus.ForeColor=PaceTheme.Muted; UpdateSoundControls();
         TabPage health=new TabPage("Tracking health") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(health);
         trackingHealthTitle=AddLabel(health,"● Tracking now",18,16,575,30,15); trackingHealthTitle.Font=new Font("Segoe UI Semibold",15); trackingHealthTitle.ForeColor=green;
         trackingHealthDetail=AddLabel(health,"",18,49,575,42,10); trackingHealthDetail.ForeColor=Color.FromArgb(76,100,91);
@@ -389,7 +396,7 @@ public class ScreenTime : Form {
     void ApplyTheme() {
         PaceTheme.SetDark(state.DarkMode); SyncThemeColors(); PaceTheme.Apply(this);
         BackColor=cream; ForeColor=ink; tabs.BackColor=cream; todayCard.BackColor=sage;
-        brandLabel.ForeColor=green; heroLabel.ForeColor=ink; subtitleLabel.ForeColor=PaceTheme.Muted; detail.ForeColor=PaceTheme.Muted; status.ForeColor=PaceTheme.Muted; weekHint.ForeColor=PaceTheme.Muted; advancedHint.ForeColor=PaceTheme.Muted; activitySummary.ForeColor=PaceTheme.Muted; timingHelp.ForeColor=PaceTheme.Muted; settingsStatus.ForeColor=PaceTheme.Muted; trackingHealthDetail.ForeColor=PaceTheme.Muted;
+        brandLabel.ForeColor=green; heroLabel.ForeColor=ink; subtitleLabel.ForeColor=PaceTheme.Muted; detail.ForeColor=PaceTheme.Muted; status.ForeColor=PaceTheme.Muted; weekHint.ForeColor=PaceTheme.Muted; advancedHint.ForeColor=PaceTheme.Muted; activitySummary.ForeColor=PaceTheme.Muted; timingHelp.ForeColor=PaceTheme.Muted; settingsStatus.ForeColor=PaceTheme.Muted; soundStatus.ForeColor=PaceTheme.Muted; trackingHealthDetail.ForeColor=PaceTheme.Muted;
         trackingIndicator.ForeColor=saveFailed?PaceTheme.Warning:green; trackingHealthTitle.ForeColor=saveFailed?PaceTheme.Warning:green;
         darkMode.Text=state.DarkMode?"Dark mode: On":"Dark mode: Off"; darkMode.BackColor=state.DarkMode?green:PaceTheme.Input; darkMode.ForeColor=state.DarkMode?Color.White:ink;
         activityChart.SetDarkMode(state.DarkMode); trackingTimeline.SetDarkMode(state.DarkMode); blockPreview.SetDarkMode(state.DarkMode); cornerBar.SetDarkMode(state.DarkMode);
@@ -443,6 +450,36 @@ public class ScreenTime : Form {
         state.Interval=interval.TotalMinutes; state.BreakMinutes=breakMinutes.TotalMinutes; state.PeriodicWrapMinutes=periodicWrap.TotalMinutes; state.ClosingWarningMinutes=closingWarning.TotalMinutes; state.MismatchGraceMinutes=mismatchGrace.TotalMinutes; state.MismatchSnoozeMinutes=mismatchSnooze.TotalMinutes; state.AlertVolume=(int)alertVolume.Value;
         settingsStatus.Text="Saved  ·  Ending warning: "+FormatDuration(state.ClosingWarningMinutes*60); settingsStatus.ForeColor=PaceTheme.Muted; Save(); RefreshView();
     }
+    void UpdateSoundControls() {
+        bool custom=CustomAlertPath.Length>0;
+        soundStatus.Text=custom?"Custom: "+Path.GetFileName(CustomAlertPath):"Built-in gentle chime";
+        soundStatus.ForeColor=PaceTheme.Muted; useBuiltInSound.Enabled=custom;
+    }
+    void ImportAlertSound() {
+        using(OpenFileDialog picker=new OpenFileDialog { Title="Choose a short Pace alert",Filter="Audio files (*.wav;*.mp3;*.wma)|*.wav;*.mp3;*.wma",CheckFileExists=true,Multiselect=false,RestoreDirectory=true }) {
+            if(picker.ShowDialog(this)!=DialogResult.OK)return;
+            FileInfo source=new FileInfo(picker.FileName); double seconds=0; string error="";
+            if(source.Length>15*1024*1024 || !AlertSound.TryGetDuration(source.FullName,out seconds,out error) || seconds>10) {
+                string message=source.Length>15*1024*1024?"Choose an audio file smaller than 15 MB.":seconds>10?"Choose a sound that is 10 seconds or shorter.":"Pace could not read that sound. "+error;
+                MessageBox.Show(this,message,"Import sound",MessageBoxButtons.OK,MessageBoxIcon.Information); return;
+            }
+            try {
+                Directory.CreateDirectory(folder); alertSound.Stop(); string previous=CustomAlertPath;
+                string destination=Path.Combine(folder,"custom-alert"+source.Extension.ToLowerInvariant());
+                if(!string.Equals(source.FullName,destination,StringComparison.OrdinalIgnoreCase))File.Copy(source.FullName,destination,true);
+                state.CustomAlertFile=Path.GetFileName(destination);
+                if(previous.Length>0 && !string.Equals(previous,destination,StringComparison.OrdinalIgnoreCase))try { File.Delete(previous); } catch { }
+                Save(); UpdateSoundControls(); settingsStatus.Text="Imported  ·  "+Math.Max(1,(int)Math.Ceiling(seconds))+"s"; settingsStatus.ForeColor=PaceTheme.Muted; PreviewAlert();
+            } catch(Exception exception) { MessageBox.Show(this,"Pace could not import that sound. "+exception.Message,"Import sound",MessageBoxButtons.OK,MessageBoxIcon.Information); }
+        }
+    }
+    void UseBuiltInAlert() {
+        string previous=CustomAlertPath; alertSound.Stop(); state.CustomAlertFile=""; Save();
+        if(previous.Length>0)try { File.Delete(previous); } catch { }
+        UpdateSoundControls(); settingsStatus.Text="Using the built-in gentle chime."; settingsStatus.ForeColor=PaceTheme.Muted; PreviewAlert();
+    }
+    void PreviewAlert() { state.AlertVolume=(int)alertVolume.Value; PlayAlert(); }
+    void PlayAlert() { alertSound.Play(state.AlertVolume,CustomAlertPath); }
     void CopyPreviousWeek() {
         DateTime previousDate=selectedWeek.AddDays(-7); WeeklyPlan previous=state.GetWeek(previousDate);
         if(previous==null) { MessageBox.Show("There is no saved plan for the previous week yet.","Copy plan"); return; }
@@ -497,6 +534,7 @@ public class ScreenTime : Form {
         foreach(WeeklyPlan savedWeek in state.Weeks)if(savedWeek.Advanced && !state.Blocks.Exists(b=>b.WeekStart==savedWeek.WeekStart))savedWeek.Advanced=false;
         if(string.IsNullOrEmpty(state.SessionDate))foreach(DayRecord savedDay in state.Days)if(string.CompareOrdinal(savedDay.Date,state.SessionDate)>0)state.SessionDate=savedDay.Date;
         state.AlertVolume=Math.Max(0,Math.Min(100,state.AlertVolume));
+        state.CustomAlertFile=string.IsNullOrWhiteSpace(state.CustomAlertFile)?"":Path.GetFileName(state.CustomAlertFile);
     }
     void LoadState() {
         state=new Settings(); if(!File.Exists(StatePath)) { state.AdvancedModesMigrated=true; return; }
@@ -660,7 +698,7 @@ public class ScreenTime : Form {
         Label current=AddLabel(focusToast,mismatchActivity+" does not match the apps or sites you planned.",16,73,406,58,10); current.AutoEllipsis=true;
         ButtonAt(focusToast,"Dismiss for "+FormatDuration(state.MismatchSnoozeMinutes*60),122,145,194,delegate { DismissFocusReminder(); });
         focusToast.FormClosed+=delegate { alertSound.Stop(); };
-        alertSound.Play(state.AlertVolume); UpdateCorner(); focusToast.Show(); PositionFocusReminder();
+        PlayAlert(); UpdateCorner(); focusToast.Show(); PositionFocusReminder();
     }
     string ActivityCategory(string name) {
         string value=name.ToLowerInvariant();
@@ -741,7 +779,7 @@ public class ScreenTime : Form {
             if(HasPlan && left<=0 && !day.Exhausted) { day.Exhausted=true; day.BreakEarned=false; StartDailyShutdown(); }
             else if(tracking && !cleanupActive && day.SinceReminder>=state.Interval*60) { day.SinceReminder=0; BeginPeriodicCleanup(); }
         }
-        if(breakFinished) { day.BreakEarned=true; day.SinceReminder=0; alertSound.Play(state.AlertVolume); Save(); }
+        if(breakFinished) { day.BreakEarned=true; day.SinceReminder=0; PlayAlert(); Save(); }
     }
     void BeginPeriodicCleanup() {
         HideFocusReminder(); mismatchSeconds=0; StopCleanup(); cleanupActive=true; cleanupClosesPlan=false; cleanupUntil=DateTime.UtcNow.AddMinutes(state.PeriodicWrapMinutes); cleanupLastPing=state.PeriodicWrapMinutes*60;
@@ -765,7 +803,7 @@ public class ScreenTime : Form {
     }
     void StartCleanupTimer() {
         toast.FormClosed+=delegate { alertSound.Stop(); };
-        alertSound.Play(state.AlertVolume); toast.Show(); PositionReminder();
+        PlayAlert(); toast.Show(); PositionReminder();
         if(cleanupTimer!=null)cleanupTimer.Dispose();
         cleanupTimer=new System.Windows.Forms.Timer { Interval=250 }; cleanupTimer.Tick+=delegate { UpdateCleanup(); }; cleanupTimer.Start();
     }
@@ -783,7 +821,7 @@ public class ScreenTime : Form {
             else if(closing)StartDailyShutdown(); else StartBreak();
             return;
         }
-        int whole=(int)Math.Ceiling(left); foreach(int mark in new[]{60,30,10})if(whole<=mark && cleanupLastPing>mark) { cleanupLastPing=mark; alertSound.Play(state.AlertVolume); break; }
+        int whole=(int)Math.Ceiling(left); foreach(int mark in new[]{60,30,10})if(whole<=mark && cleanupLastPing>mark) { cleanupLastPing=mark; PlayAlert(); break; }
         if(cleanupLabel!=null && !cleanupLabel.IsDisposed)cleanupLabel.Text=(cleanupClosesPlan?"Closes in: ":"Break begins in: ")+CornerBar.Countdown(left);
         PositionReminder();
     }
@@ -926,7 +964,7 @@ public class ScreenTime : Form {
     }
     void Notify(string title,string message) {
         HideFocusReminder(); StopCleanup();
-        alertSound.Play(state.AlertVolume);
+        PlayAlert();
         toast=new Reminder { Text=title,ClientSize=new Size(438,174),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=PaceTheme.Reminder };
         Round(toast,14);
         UpdateCorner(); PositionReminder();
@@ -944,4 +982,3 @@ public class ScreenTime : Form {
     }
     [STAThread] public static void Main(string[] args) { bool created; using(var mutex=new Mutex(true,"Local\\TrustScreenTime",out created)) { if(!created) { MessageBox.Show("Pace is already running. Open it from the system tray."); return; } Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ScreenTime()); } }
 }
-

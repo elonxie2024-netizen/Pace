@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Media;
+using System.Runtime.InteropServices;
+using System.Text;
 
 // Owns the in-memory waveform for the full lifetime of asynchronous playback.
 public sealed class AlertSound : IDisposable
@@ -8,11 +10,27 @@ public sealed class AlertSound : IDisposable
     private SoundPlayer player;
     private MemoryStream stream;
     private bool disposed;
+    private bool customOpen;
+    private const string CustomAlias = "PaceAlertSound";
 
-    public void Play(int volume)
+    [DllImport("winmm.dll", CharSet = CharSet.Auto)]
+    private static extern int mciSendString(string command, StringBuilder result, int resultLength, IntPtr callback);
+
+    [DllImport("winmm.dll", CharSet = CharSet.Auto)]
+    private static extern bool mciGetErrorString(int errorCode, StringBuilder errorText, int errorTextLength);
+
+    public void Play(int volume, string customPath)
     {
         Stop();
         if (disposed || volume <= 0) return;
+        if (!string.IsNullOrWhiteSpace(customPath) && File.Exists(customPath) && TryOpenCustom(customPath))
+        {
+            // Imported sounds vary wildly in mastering level, so Pace caps them
+            // below the Windows MCI maximum even when the slider is at 100%.
+            mciSendString("setaudio " + CustomAlias + " volume to " + Math.Max(0, Math.Min(700, volume * 7)), null, 0, IntPtr.Zero);
+            if (mciSendString("play " + CustomAlias + " from 0", null, 0, IntPtr.Zero) == 0) return;
+            CloseCustom();
+        }
         try
         {
             stream = new MemoryStream(CreateWave(volume), false);
@@ -29,6 +47,7 @@ public sealed class AlertSound : IDisposable
 
     public void Stop()
     {
+        CloseCustom();
         if (player != null)
         {
             try { player.Stop(); } catch (Exception) { }
@@ -52,10 +71,9 @@ public sealed class AlertSound : IDisposable
     {
         const int sampleRate = 44100;
         const int sampleCount = sampleRate * 3 / 2;
-        const double pulseLength = 0.36;
-        const double pulseSpacing = 0.50;
-        const double fadeLength = 0.018;
-        double gain = Math.Max(0, Math.Min(100, volume)) / 100.0 * 0.92;
+        double gain = Math.Max(0, Math.Min(100, volume)) / 100.0 * 0.34;
+        double[] starts = { 0.08, 0.64 };
+        double[] frequencies = { 523.25, 659.25 };
         using (MemoryStream buffer = new MemoryStream(44 + sampleCount * 2))
         using (BinaryWriter writer = new BinaryWriter(buffer))
         {
@@ -75,23 +93,64 @@ public sealed class AlertSound : IDisposable
             for (int i = 0; i < sampleCount; i++)
             {
                 double time = i / (double)sampleRate;
-                double localTime = time - Math.Floor(time / pulseSpacing) * pulseSpacing;
                 double value = 0;
-                if (localTime < pulseLength)
+                for (int note = 0; note < starts.Length; note++)
                 {
-                    double fade = Math.Min(1.0, Math.Min(localTime / fadeLength,
-                        (pulseLength - localTime) / fadeLength));
-                    double envelope = 0.5 - 0.5 * Math.Cos(Math.PI * fade);
-                    // Both components stay prominent through music; their summed
-                    // amplitudes are bounded below full scale to avoid clipping.
-                    double tone = 0.6 * Math.Sin(2 * Math.PI * 880 * localTime)
-                        + 0.4 * Math.Sin(2 * Math.PI * 1320 * localTime);
-                    value = gain * envelope * tone;
+                    double localTime = time - starts[note], length = 0.78;
+                    if (localTime < 0 || localTime >= length) continue;
+                    double attack = Math.Min(1.0, localTime / 0.055);
+                    double release = Math.Min(1.0, (length - localTime) / 0.18);
+                    double envelope = attack * release * Math.Exp(-localTime / 0.42);
+                    double frequency = frequencies[note];
+                    double tone = 0.82 * Math.Sin(2 * Math.PI * frequency * localTime)
+                        + 0.13 * Math.Sin(2 * Math.PI * frequency * 2 * localTime)
+                        + 0.05 * Math.Sin(2 * Math.PI * frequency * 0.5 * localTime);
+                    value += gain * envelope * tone;
                 }
+                value = Math.Max(-0.75, Math.Min(0.75, value));
                 writer.Write((short)Math.Round(value * short.MaxValue));
             }
             writer.Flush();
             return buffer.ToArray();
         }
+    }
+
+    private static string MciError(int code)
+    {
+        StringBuilder message = new StringBuilder(256);
+        return mciGetErrorString(code, message, message.Capacity) ? message.ToString() : "Windows could not read this audio file.";
+    }
+
+    private bool TryOpenCustom(string path)
+    {
+        int result = mciSendString("open \"" + path + "\" alias " + CustomAlias, null, 0, IntPtr.Zero);
+        customOpen = result == 0;
+        return customOpen;
+    }
+
+    private void CloseCustom()
+    {
+        if (!customOpen) return;
+        mciSendString("stop " + CustomAlias, null, 0, IntPtr.Zero);
+        mciSendString("close " + CustomAlias, null, 0, IntPtr.Zero);
+        customOpen = false;
+    }
+
+    public static bool TryGetDuration(string path, out double seconds, out string error)
+    {
+        seconds = 0; error = "";
+        string alias = "PaceSoundCheck" + Guid.NewGuid().ToString("N");
+        int result = mciSendString("open \"" + path + "\" alias " + alias, null, 0, IntPtr.Zero);
+        if (result != 0) { error = MciError(result); return false; }
+        try
+        {
+            StringBuilder length = new StringBuilder(64);
+            result = mciSendString("status " + alias + " length", length, length.Capacity, IntPtr.Zero);
+            int milliseconds;
+            if (result != 0 || !int.TryParse(length.ToString(), out milliseconds) || milliseconds <= 0)
+            { error = result == 0 ? "The audio file has no readable duration." : MciError(result); return false; }
+            seconds = milliseconds / 1000.0; return true;
+        }
+        finally { mciSendString("close " + alias, null, 0, IntPtr.Zero); }
     }
 }

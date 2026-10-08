@@ -51,6 +51,15 @@ try {
     $intervalInput.TotalMinutes=75; $breakInput.TotalMinutes=90; $wrapInput.TotalMinutes=7; $closingInput.TotalMinutes=3; $graceInput.TotalMinutes=2; $snoozeInput.TotalMinutes=75
     (Field 'alertVolume').Value=64; Call 'SaveTimingSettings'
     Assert ($state.Interval -eq 75 -and $state.BreakMinutes -eq 90 -and $state.PeriodicWrapMinutes -eq 7 -and $state.ClosingWarningMinutes -eq 3 -and $state.MismatchGraceMinutes -eq 2 -and $state.MismatchSnoozeMinutes -eq 75 -and $state.AlertVolume -eq 64) 'Settings must save every user-facing duration independently'
+    $gentleWave = [AlertSound]::CreateWave(100); $quietWave = [AlertSound]::CreateWave(25)
+    $gentlePeak = 0; $quietPeak = 0
+    for($sample=44;$sample -lt $gentleWave.Length;$sample+=2) { $value=[Math]::Abs([int][BitConverter]::ToInt16($gentleWave,$sample)); if($value -gt $gentlePeak){$gentlePeak=$value}; $value=[Math]::Abs([int][BitConverter]::ToInt16($quietWave,$sample)); if($value -gt $quietPeak){$quietPeak=$value} }
+    Assert ($gentleWave.Length -eq 132344 -and $gentlePeak -gt 3000 -and $gentlePeak -lt 16000 -and $quietPeak -lt $gentlePeak/2) 'The built-in reminder must be a bounded, volume-sensitive gentle chime instead of the piercing alert'
+    $soundPath=Join-Path $tempFolder 'short-alert.wav'; [IO.File]::WriteAllBytes($soundPath,$gentleWave); $soundSeconds=0.0; $soundError=''
+    Assert ([AlertSound]::TryGetDuration($soundPath,[ref]$soundSeconds,[ref]$soundError) -and $soundSeconds -le 2) 'The custom-sound validator must accept a readable short audio file'
+    $settingsButtons=@((Field 'tabs').TabPages[3].Controls | Where-Object { $_ -is [Windows.Forms.Button] -and $_.Text -in @('Import sound','Built-in','Preview','Dark mode: On','Dark mode: Off','Save settings') })
+    Assert ($settingsButtons.Count -eq 5) 'Settings must expose import, built-in reset, preview, appearance, and save controls'
+    for($a=0;$a -lt $settingsButtons.Count;$a++){for($b=$a+1;$b -lt $settingsButtons.Count;$b++){Assert (-not $settingsButtons[$a].Bounds.IntersectsWith($settingsButtons[$b].Bounds)) 'Sound and settings buttons must not overlap'}}
     $durationFlags = [Reflection.BindingFlags]'NonPublic,Instance'
     $minutePart = $snoozeInput.GetType().GetField('minutes',$durationFlags).GetValue($snoozeInput)
     Assert ($minutePart.Value -eq 15 -and $minutePart.Maximum -le 59) 'Custom durations must split 1h 15m into hours and a minute component below 60'
@@ -387,6 +396,7 @@ try {
     $day.ActiveReason = 'Testing visible extra-time reason'
     $day.Reasons.Add('Testing saved reason')
     $state.AlertVolume = 73
+    $state.CustomAlertFile = 'custom-alert.wav'
     $currentPlan.Advanced = $true
     $state.Blocks.Add($blockA)
     $invalidBlock = New-Object AdvancedBlock
@@ -399,7 +409,7 @@ try {
     Assert ($loaded.GetWeek($thisWeek).Advanced -and $loaded.Blocks.Count -eq 1 -and $loaded.Blocks[0].AllowedApps -eq 'Word, Canvas') 'Advanced plan mode and normalized activity matching words must survive reload while invalid blocks are discarded'
     Assert (-not $loaded.GetWeek($nextWeek).Advanced) 'Advanced plan mode must stay attached to its own week'
     Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason' -and $loaded.Days[0].ActiveReason -eq 'Testing visible extra-time reason') 'Usage, extra time, and reasons must survive reload'
-    Assert ($loaded.AlertVolume -eq 73) 'Reminder volume must survive reload'
+    Assert ($loaded.AlertVolume -eq 73 -and $loaded.CustomAlertFile -eq 'custom-alert.wav') 'Reminder volume and custom sound selection must survive reload'
     Assert ($loaded.Interval -eq 75 -and $loaded.BreakMinutes -eq 90 -and $loaded.PeriodicWrapMinutes -eq 7 -and $loaded.ClosingWarningMinutes -eq 3 -and $loaded.MismatchGraceMinutes -eq 2 -and $loaded.MismatchSnoozeMinutes -eq 75 -and $loaded.DarkMode) 'All custom timing and appearance settings must survive reload'
     Call 'Save'
     Set-Content -LiteralPath (Join-Path $tempFolder 'state.xml') -Value '<damaged>'
@@ -427,7 +437,7 @@ try {
 } finally {
     if ($app) { $app.Dispose() }
     # Delete only the known test files and empty directory; never touch real application data.
-    foreach ($name in @('state.xml', 'state.xml.tmp', 'state.xml.backup')) {
+    foreach ($name in @('state.xml', 'state.xml.tmp', 'state.xml.backup', 'short-alert.wav')) {
         $testFile = Join-Path $tempFolder $name
         if (Test-Path -LiteralPath $testFile) { Remove-Item -LiteralPath $testFile }
     }
