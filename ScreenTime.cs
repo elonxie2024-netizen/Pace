@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.15.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.15.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.16.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.16.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -142,6 +142,8 @@ public class Settings {
     public int MismatchGraceMinutes = 1, MismatchSnoozeMinutes = 5;
     public int AlertVolume = 70;
     public string CustomAlertFile="";
+    public bool UseCustomAlert=true;
+    public string BuiltInAlert="Gentle notes";
     public bool DarkMode;
     public DateTime BreakUntil = DateTime.MinValue;
     public bool BreakWaiting;
@@ -165,7 +167,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.15";
+    const string PaceVersion="0.2.16";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -219,7 +221,8 @@ public class ScreenTime : Form {
     bool cornerStarted;
     NumericUpDown alertVolume;
     Button darkMode;
-    Button useBuiltInSound;
+    ComboBox soundChoice;
+    bool loadingSoundChoice;
     ListBox activityList;
     ActivityChart activityChart;
     ComboBox activityRange;
@@ -304,10 +307,10 @@ public class ScreenTime : Form {
         AddLabel(alerts,"App mismatch grace",420,115,210,25,9); mismatchGrace=new HourMinuteInput(1,60,state.MismatchGraceMinutes) { Location=new Point(638,110) }; alerts.Controls.Add(mismatchGrace);
         AddLabel(alerts,"Mismatch reminder snooze",420,157,210,25,9); mismatchSnooze=new HourMinuteInput(1,240,state.MismatchSnoozeMinutes) { Location=new Point(638,152) }; alerts.Controls.Add(mismatchSnooze);
         AddLabel(alerts,"Alert volume",18,211,100,25,9); alertVolume=new NumericUpDown { Location=new Point(121,206),Size=new Size(65,28),Minimum=0,Maximum=100,Value=state.AlertVolume }; alerts.Controls.Add(alertVolume); AddLabel(alerts,"%",191,211,25,25,9);
-        ButtonAt(alerts,"Import sound",225,202,105,36,delegate { ImportAlertSound(); });
-        useBuiltInSound=ButtonAt(alerts,"Built-in",338,202,94,36,delegate { UseBuiltInAlert(); });
-        ButtonAt(alerts,"Preview",440,202,70,36,delegate { PreviewAlert(); });
-        darkMode=new Button { Text=state.DarkMode?"Dark mode: On":"Dark mode: Off",FlatStyle=FlatStyle.Flat,TextAlign=ContentAlignment.MiddleCenter,Location=new Point(518,202),Size=new Size(130,36),Cursor=Cursors.Hand }; darkMode.FlatAppearance.BorderSize=0; alerts.Controls.Add(darkMode); Round(darkMode,9); darkMode.Click+=delegate { DarkModeChanged(); };
+        soundChoice=new ComboBox { Location=new Point(225,206),Size=new Size(150,28),DropDownStyle=ComboBoxStyle.DropDownList }; soundChoice.SelectedIndexChanged+=delegate { SoundChoiceChanged(); }; alerts.Controls.Add(soundChoice);
+        ButtonAt(alerts,"Import",383,202,95,36,delegate { ImportAlertSound(); });
+        ButtonAt(alerts,"Preview",486,202,70,36,delegate { PreviewAlert(); });
+        darkMode=new Button { Text=state.DarkMode?"Dark: On":"Dark: Off",FlatStyle=FlatStyle.Flat,TextAlign=ContentAlignment.MiddleCenter,Location=new Point(564,202),Size=new Size(84,36),Cursor=Cursors.Hand }; darkMode.FlatAppearance.BorderSize=0; alerts.Controls.Add(darkMode); Round(darkMode,9); darkMode.Click+=delegate { DarkModeChanged(); };
         ButtonAt(alerts,"Save settings",660,202,148,36,delegate { SaveTimingSettings(); });
         soundStatus=AddLabel(alerts,"",18,242,300,20,9); soundStatus.ForeColor=PaceTheme.Muted;
         settingsStatus=AddLabel(alerts,"",330,242,478,20,9); settingsStatus.ForeColor=PaceTheme.Muted; UpdateSoundControls();
@@ -398,7 +401,7 @@ public class ScreenTime : Form {
         BackColor=cream; ForeColor=ink; tabs.BackColor=cream; todayCard.BackColor=sage;
         brandLabel.ForeColor=green; heroLabel.ForeColor=ink; subtitleLabel.ForeColor=PaceTheme.Muted; detail.ForeColor=PaceTheme.Muted; status.ForeColor=PaceTheme.Muted; weekHint.ForeColor=PaceTheme.Muted; advancedHint.ForeColor=PaceTheme.Muted; activitySummary.ForeColor=PaceTheme.Muted; timingHelp.ForeColor=PaceTheme.Muted; settingsStatus.ForeColor=PaceTheme.Muted; soundStatus.ForeColor=PaceTheme.Muted; trackingHealthDetail.ForeColor=PaceTheme.Muted;
         trackingIndicator.ForeColor=saveFailed?PaceTheme.Warning:green; trackingHealthTitle.ForeColor=saveFailed?PaceTheme.Warning:green;
-        darkMode.Text=state.DarkMode?"Dark mode: On":"Dark mode: Off"; darkMode.BackColor=state.DarkMode?green:PaceTheme.Input; darkMode.ForeColor=state.DarkMode?Color.White:ink;
+        darkMode.Text=state.DarkMode?"Dark: On":"Dark: Off"; darkMode.BackColor=state.DarkMode?green:PaceTheme.Input; darkMode.ForeColor=state.DarkMode?Color.White:ink;
         activityChart.SetDarkMode(state.DarkMode); trackingTimeline.SetDarkMode(state.DarkMode); blockPreview.SetDarkMode(state.DarkMode); cornerBar.SetDarkMode(state.DarkMode);
         if(toast!=null && !toast.IsDisposed) { PaceTheme.Apply(toast); toast.BackColor=PaceTheme.Reminder; }
         if(focusToast!=null && !focusToast.IsDisposed) { PaceTheme.Apply(focusToast); focusToast.BackColor=PaceTheme.FocusReminder; }
@@ -451,9 +454,20 @@ public class ScreenTime : Form {
         settingsStatus.Text="Saved  ·  Ending warning: "+FormatDuration(state.ClosingWarningMinutes*60); settingsStatus.ForeColor=PaceTheme.Muted; Save(); RefreshView();
     }
     void UpdateSoundControls() {
-        bool custom=CustomAlertPath.Length>0;
-        soundStatus.Text=custom?"Custom: "+Path.GetFileName(CustomAlertPath):"Built-in gentle chime";
-        soundStatus.ForeColor=PaceTheme.Muted; useBuiltInSound.Enabled=custom;
+        loadingSoundChoice=true; soundChoice.Items.Clear();
+        bool hasCustom=CustomAlertPath.Length>0;
+        if(hasCustom)soundChoice.Items.Add("Custom: "+Path.GetFileName(CustomAlertPath));
+        foreach(string sound in AlertSound.BuiltInSounds)soundChoice.Items.Add(sound);
+        int builtInIndex=Array.IndexOf(AlertSound.BuiltInSounds,AlertSound.NormalizeBuiltInSound(state.BuiltInAlert));
+        soundChoice.SelectedIndex=hasCustom && state.UseCustomAlert?0:(hasCustom?1:0)+builtInIndex;
+        loadingSoundChoice=false; soundStatus.Text="Selected: "+soundChoice.SelectedItem; soundStatus.ForeColor=PaceTheme.Muted;
+    }
+    void SoundChoiceChanged() {
+        if(loadingSoundChoice || soundChoice.SelectedIndex<0)return;
+        bool custom=CustomAlertPath.Length>0 && soundChoice.SelectedIndex==0;
+        state.UseCustomAlert=custom;
+        if(!custom)state.BuiltInAlert=AlertSound.NormalizeBuiltInSound(soundChoice.SelectedItem.ToString());
+        Save(); UpdateSoundControls(); PreviewAlert();
     }
     void ImportAlertSound() {
         using(OpenFileDialog picker=new OpenFileDialog { Title="Choose a short Pace alert",Filter="Audio files (*.wav;*.mp3;*.wma)|*.wav;*.mp3;*.wma",CheckFileExists=true,Multiselect=false,RestoreDirectory=true }) {
@@ -467,19 +481,14 @@ public class ScreenTime : Form {
                 Directory.CreateDirectory(folder); alertSound.Stop(); string previous=CustomAlertPath;
                 string destination=Path.Combine(folder,"custom-alert"+source.Extension.ToLowerInvariant());
                 if(!string.Equals(source.FullName,destination,StringComparison.OrdinalIgnoreCase))File.Copy(source.FullName,destination,true);
-                state.CustomAlertFile=Path.GetFileName(destination);
+                state.CustomAlertFile=Path.GetFileName(destination); state.UseCustomAlert=true;
                 if(previous.Length>0 && !string.Equals(previous,destination,StringComparison.OrdinalIgnoreCase))try { File.Delete(previous); } catch { }
                 Save(); UpdateSoundControls(); settingsStatus.Text="Imported  ·  "+Math.Max(1,(int)Math.Ceiling(seconds))+"s"; settingsStatus.ForeColor=PaceTheme.Muted; PreviewAlert();
             } catch(Exception exception) { MessageBox.Show(this,"Pace could not import that sound. "+exception.Message,"Import sound",MessageBoxButtons.OK,MessageBoxIcon.Information); }
         }
     }
-    void UseBuiltInAlert() {
-        string previous=CustomAlertPath; alertSound.Stop(); state.CustomAlertFile=""; Save();
-        if(previous.Length>0)try { File.Delete(previous); } catch { }
-        UpdateSoundControls(); settingsStatus.Text="Using the built-in gentle chime."; settingsStatus.ForeColor=PaceTheme.Muted; PreviewAlert();
-    }
     void PreviewAlert() { state.AlertVolume=(int)alertVolume.Value; PlayAlert(); }
-    void PlayAlert() { alertSound.Play(state.AlertVolume,CustomAlertPath); }
+    void PlayAlert() { alertSound.Play(state.AlertVolume,state.UseCustomAlert?CustomAlertPath:"",state.BuiltInAlert); }
     void CopyPreviousWeek() {
         DateTime previousDate=selectedWeek.AddDays(-7); WeeklyPlan previous=state.GetWeek(previousDate);
         if(previous==null) { MessageBox.Show("There is no saved plan for the previous week yet.","Copy plan"); return; }
@@ -535,6 +544,7 @@ public class ScreenTime : Form {
         if(string.IsNullOrEmpty(state.SessionDate))foreach(DayRecord savedDay in state.Days)if(string.CompareOrdinal(savedDay.Date,state.SessionDate)>0)state.SessionDate=savedDay.Date;
         state.AlertVolume=Math.Max(0,Math.Min(100,state.AlertVolume));
         state.CustomAlertFile=string.IsNullOrWhiteSpace(state.CustomAlertFile)?"":Path.GetFileName(state.CustomAlertFile);
+        state.BuiltInAlert=AlertSound.NormalizeBuiltInSound(state.BuiltInAlert);
     }
     void LoadState() {
         state=new Settings(); if(!File.Exists(StatePath)) { state.AdvancedModesMigrated=true; return; }

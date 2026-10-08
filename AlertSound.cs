@@ -12,6 +12,7 @@ public sealed class AlertSound : IDisposable
     private bool disposed;
     private bool customOpen;
     private const string CustomAlias = "PaceAlertSound";
+    public static readonly string[] BuiltInSounds = { "Gentle notes", "Rain on leaves", "Ocean wash", "Morning bird", "Soft kalimba", "Sand drift" };
 
     [DllImport("winmm.dll", CharSet = CharSet.Auto)]
     private static extern int mciSendString(string command, StringBuilder result, int resultLength, IntPtr callback);
@@ -19,7 +20,7 @@ public sealed class AlertSound : IDisposable
     [DllImport("winmm.dll", CharSet = CharSet.Auto)]
     private static extern bool mciGetErrorString(int errorCode, StringBuilder errorText, int errorTextLength);
 
-    public void Play(int volume, string customPath)
+    public void Play(int volume, string customPath, string builtInSound)
     {
         Stop();
         if (disposed || volume <= 0) return;
@@ -33,7 +34,7 @@ public sealed class AlertSound : IDisposable
         }
         try
         {
-            stream = new MemoryStream(CreateWave(volume), false);
+            stream = new MemoryStream(CreateWave(volume, builtInSound), false);
             player = new SoundPlayer(stream);
             player.Load();
             player.Play();
@@ -69,11 +70,22 @@ public sealed class AlertSound : IDisposable
 
     public static byte[] CreateWave(int volume)
     {
+        return CreateWave(volume, BuiltInSounds[0]);
+    }
+
+    public static string NormalizeBuiltInSound(string value)
+    {
+        foreach (string sound in BuiltInSounds) if (string.Equals(sound, value, StringComparison.Ordinal)) return sound;
+        return BuiltInSounds[0];
+    }
+
+    public static byte[] CreateWave(int volume, string builtInSound)
+    {
         const int sampleRate = 44100;
         const int sampleCount = sampleRate * 3 / 2;
         double gain = Math.Max(0, Math.Min(100, volume)) / 100.0 * 0.34;
-        double[] starts = { 0.08, 0.64 };
-        double[] frequencies = { 523.25, 659.25 };
+        string preset = NormalizeBuiltInSound(builtInSound);
+        uint noiseState = 0x7f4a7c15; double slowNoise = 0, fastNoise = 0;
         using (MemoryStream buffer = new MemoryStream(44 + sampleCount * 2))
         using (BinaryWriter writer = new BinaryWriter(buffer))
         {
@@ -93,26 +105,58 @@ public sealed class AlertSound : IDisposable
             for (int i = 0; i < sampleCount; i++)
             {
                 double time = i / (double)sampleRate;
-                double value = 0;
-                for (int note = 0; note < starts.Length; note++)
+                noiseState = noiseState * 1664525u + 1013904223u;
+                double noise = ((noiseState >> 8) / 8388607.5) - 1.0;
+                slowNoise += 0.012 * (noise - slowNoise); fastNoise += 0.085 * (noise - fastNoise);
+                double value;
+                if (preset == "Rain on leaves") value = gain * 0.80 * (0.72 * fastNoise + 0.28 * slowNoise);
+                else if (preset == "Ocean wash")
                 {
-                    double localTime = time - starts[note], length = 0.78;
-                    if (localTime < 0 || localTime >= length) continue;
-                    double attack = Math.Min(1.0, localTime / 0.055);
-                    double release = Math.Min(1.0, (length - localTime) / 0.18);
-                    double envelope = attack * release * Math.Exp(-localTime / 0.42);
-                    double frequency = frequencies[note];
-                    double tone = 0.82 * Math.Sin(2 * Math.PI * frequency * localTime)
-                        + 0.13 * Math.Sin(2 * Math.PI * frequency * 2 * localTime)
-                        + 0.05 * Math.Sin(2 * Math.PI * frequency * 0.5 * localTime);
-                    value += gain * envelope * tone;
+                    double swell = 0.22 + 0.78 * (0.5 - 0.5 * Math.Cos(2 * Math.PI * time / 1.45));
+                    value = gain * 1.10 * swell * (0.72 * slowNoise + 0.28 * fastNoise);
                 }
+                else if (preset == "Sand drift") value = gain * 0.80 * Math.Sin(Math.PI * time / 1.5) * (fastNoise - 0.55 * slowNoise);
+                else if (preset == "Morning bird") value = gain * Bird(time);
+                else if (preset == "Soft kalimba") value = gain * Kalimba(time);
+                else value = gain * GentleNotes(time);
                 value = Math.Max(-0.75, Math.Min(0.75, value));
                 writer.Write((short)Math.Round(value * short.MaxValue));
             }
             writer.Flush();
             return buffer.ToArray();
         }
+    }
+
+    private static double GentleNotes(double time)
+    {
+        return GentleNote(time,0.08,523.25)+GentleNote(time,0.64,659.25);
+    }
+
+    private static double GentleNote(double time,double start,double frequency) {
+        double local=time-start,length=0.78; if(local<0 || local>=length)return 0;
+        double envelope=Math.Min(1.0,local/0.055)*Math.Min(1.0,(length-local)/0.18)*Math.Exp(-local/0.42);
+        return envelope*(0.82*Math.Sin(2*Math.PI*frequency*local)+0.13*Math.Sin(4*Math.PI*frequency*local)+0.05*Math.Sin(Math.PI*frequency*local));
+    }
+
+    private static double Kalimba(double time)
+    {
+        return KalimbaNote(time,0.06,392.0)+KalimbaNote(time,0.47,493.88)+KalimbaNote(time,0.88,587.33);
+    }
+
+    private static double KalimbaNote(double time,double start,double frequency) {
+        double local=time-start; if(local<0 || local>=0.58)return 0;
+        double envelope=Math.Min(1.0,local/0.025)*Math.Exp(-local/0.19)*Math.Min(1.0,(0.58-local)/0.08);
+        return 0.72*envelope*(0.88*Math.Sin(2*Math.PI*frequency*local)+0.12*Math.Sin(6*Math.PI*frequency*local));
+    }
+
+    private static double Bird(double time)
+    {
+        return BirdChirp(time,0.16)+BirdChirp(time,0.84);
+    }
+    private static double BirdChirp(double time,double start) {
+        double local=time-start,length=0.34;if(local<0 || local>=length)return 0;
+        double phase=2*Math.PI*(720*local+410*local*local),envelope=Math.Pow(Math.Sin(Math.PI*local/length),1.4);
+        return 0.38*envelope*(0.86*Math.Sin(phase)+0.14*Math.Sin(phase*1.5));
     }
 
     private static string MciError(int code)

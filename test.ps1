@@ -55,11 +55,16 @@ try {
     $gentlePeak = 0; $quietPeak = 0
     for($sample=44;$sample -lt $gentleWave.Length;$sample+=2) { $value=[Math]::Abs([int][BitConverter]::ToInt16($gentleWave,$sample)); if($value -gt $gentlePeak){$gentlePeak=$value}; $value=[Math]::Abs([int][BitConverter]::ToInt16($quietWave,$sample)); if($value -gt $quietPeak){$quietPeak=$value} }
     Assert ($gentleWave.Length -eq 132344 -and $gentlePeak -gt 3000 -and $gentlePeak -lt 16000 -and $quietPeak -lt $gentlePeak/2) 'The built-in reminder must be a bounded, volume-sensitive gentle chime instead of the piercing alert'
+    $builtInSounds=@([AlertSound]::BuiltInSounds); $soundFingerprints=@()
+    foreach($builtIn in $builtInSounds){$bytes=[AlertSound]::CreateWave(100,$builtIn);$hash=[Security.Cryptography.SHA256]::Create();try{$soundFingerprints+=[Convert]::ToBase64String($hash.ComputeHash($bytes))}finally{$hash.Dispose()}}
+    Assert ($builtInSounds.Count -ge 6 -and $builtInSounds -contains 'Rain on leaves' -and $builtInSounds -contains 'Morning bird' -and $builtInSounds -contains 'Soft kalimba' -and @($soundFingerprints | Select-Object -Unique).Count -eq $builtInSounds.Count) 'Built-in choices must include distinct nature, bird, instrument, and gentle sounds'
     $soundPath=Join-Path $tempFolder 'short-alert.wav'; [IO.File]::WriteAllBytes($soundPath,$gentleWave); $soundSeconds=0.0; $soundError=''
     Assert ([AlertSound]::TryGetDuration($soundPath,[ref]$soundSeconds,[ref]$soundError) -and $soundSeconds -le 2) 'The custom-sound validator must accept a readable short audio file'
-    $settingsButtons=@((Field 'tabs').TabPages[3].Controls | Where-Object { $_ -is [Windows.Forms.Button] -and $_.Text -in @('Import sound','Built-in','Preview','Dark mode: On','Dark mode: Off','Save settings') })
-    Assert ($settingsButtons.Count -eq 5) 'Settings must expose import, built-in reset, preview, appearance, and save controls'
+    $settingsButtons=@((Field 'tabs').TabPages[3].Controls | Where-Object { $_ -is [Windows.Forms.Button] -and $_.Text -in @('Import','Preview','Dark: On','Dark: Off','Save settings') })
+    $soundChoice=Field 'soundChoice'
+    Assert ($settingsButtons.Count -eq 4 -and $soundChoice.DropDownStyle -eq [Windows.Forms.ComboBoxStyle]::DropDownList -and $soundChoice.Items.Count -eq $builtInSounds.Count) 'Settings must expose the built-in sound dropdown, import, preview, appearance, and save controls'
     for($a=0;$a -lt $settingsButtons.Count;$a++){for($b=$a+1;$b -lt $settingsButtons.Count;$b++){Assert (-not $settingsButtons[$a].Bounds.IntersectsWith($settingsButtons[$b].Bounds)) 'Sound and settings buttons must not overlap'}}
+    Assert (@($settingsButtons | Where-Object { $_.Bounds.IntersectsWith($soundChoice.Bounds) }).Count -eq 0) 'The sound dropdown must not overlap any settings button'
     $durationFlags = [Reflection.BindingFlags]'NonPublic,Instance'
     $minutePart = $snoozeInput.GetType().GetField('minutes',$durationFlags).GetValue($snoozeInput)
     Assert ($minutePart.Value -eq 15 -and $minutePart.Maximum -le 59) 'Custom durations must split 1h 15m into hours and a minute component below 60'
@@ -73,7 +78,7 @@ try {
     $lightArt = [Drawing.Bitmap]$app.BackgroundImage
     $lightPixel = $lightArt.GetPixel([int]($lightArt.Width/2),[int]($lightArt.Height/2))
     $darkToggle = Field 'darkMode'; $app.GetType().GetMethod('DarkModeChanged',$flags).Invoke($app,@())
-    Assert ($state.DarkMode -and [PaceTheme]::Dark -and $darkToggle.Text -eq 'Dark mode: On') 'Dark mode must apply immediately and update its setting control'
+    Assert ($state.DarkMode -and [PaceTheme]::Dark -and $darkToggle.Text -eq 'Dark: On') 'Dark mode must apply immediately and update its setting control'
     Assert ($app.BackColor -eq [PaceTheme]::Background -and (Field 'todayCard').BackColor -eq [PaceTheme]::Card -and (Field 'tabs').TabPages[0].BackColor -eq [PaceTheme]::Surface) 'Dark mode must theme the dashboard, today card, and tab surfaces'
     Assert ((Field 'activityChart').BackColor -eq [PaceTheme]::Surface -and (Field 'trackingTimeline').BackColor -eq [PaceTheme]::Surface -and (Field 'cornerBar').BackColor -eq [Drawing.Color]::FromArgb(22,38,33)) 'Dark mode must theme reports, tracking visuals, and the corner bar'
     $darkArt = [Drawing.Bitmap]$app.BackgroundImage
@@ -397,6 +402,7 @@ try {
     $day.Reasons.Add('Testing saved reason')
     $state.AlertVolume = 73
     $state.CustomAlertFile = 'custom-alert.wav'
+    $state.UseCustomAlert = $false; $state.BuiltInAlert = 'Ocean wash'
     $currentPlan.Advanced = $true
     $state.Blocks.Add($blockA)
     $invalidBlock = New-Object AdvancedBlock
@@ -409,7 +415,7 @@ try {
     Assert ($loaded.GetWeek($thisWeek).Advanced -and $loaded.Blocks.Count -eq 1 -and $loaded.Blocks[0].AllowedApps -eq 'Word, Canvas') 'Advanced plan mode and normalized activity matching words must survive reload while invalid blocks are discarded'
     Assert (-not $loaded.GetWeek($nextWeek).Advanced) 'Advanced plan mode must stay attached to its own week'
     Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason' -and $loaded.Days[0].ActiveReason -eq 'Testing visible extra-time reason') 'Usage, extra time, and reasons must survive reload'
-    Assert ($loaded.AlertVolume -eq 73 -and $loaded.CustomAlertFile -eq 'custom-alert.wav') 'Reminder volume and custom sound selection must survive reload'
+    Assert ($loaded.AlertVolume -eq 73 -and $loaded.CustomAlertFile -eq 'custom-alert.wav' -and -not $loaded.UseCustomAlert -and $loaded.BuiltInAlert -eq 'Ocean wash') 'Reminder volume, custom import, and selected built-in sound must survive reload'
     Assert ($loaded.Interval -eq 75 -and $loaded.BreakMinutes -eq 90 -and $loaded.PeriodicWrapMinutes -eq 7 -and $loaded.ClosingWarningMinutes -eq 3 -and $loaded.MismatchGraceMinutes -eq 2 -and $loaded.MismatchSnoozeMinutes -eq 75 -and $loaded.DarkMode) 'All custom timing and appearance settings must survive reload'
     Call 'Save'
     Set-Content -LiteralPath (Join-Path $tempFolder 'state.xml') -Value '<damaged>'
