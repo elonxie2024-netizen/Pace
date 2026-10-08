@@ -139,6 +139,36 @@ public sealed class AlertSound : IDisposable
     public static bool TryGetDuration(string path, out double seconds, out string error)
     {
         seconds = 0; error = "";
+        if (string.Equals(Path.GetExtension(path), ".wav", StringComparison.OrdinalIgnoreCase))
+        {
+            try
+            {
+                using (FileStream file = File.OpenRead(path))
+                using (BinaryReader reader = new BinaryReader(file))
+                {
+                    if (new string(reader.ReadChars(4)) != "RIFF") throw new InvalidDataException();
+                    reader.ReadInt32();
+                    if (new string(reader.ReadChars(4)) != "WAVE") throw new InvalidDataException();
+                    int byteRate = 0, dataBytes = 0;
+                    while (file.Position + 8 <= file.Length)
+                    {
+                        string chunk = new string(reader.ReadChars(4)); int size = reader.ReadInt32();
+                        if (size < 0 || file.Position + size > file.Length) throw new InvalidDataException();
+                        long next = file.Position + size + (size & 1);
+                        if (chunk == "fmt " && size >= 16)
+                        {
+                            reader.ReadInt16(); reader.ReadInt16(); reader.ReadInt32(); byteRate = reader.ReadInt32();
+                        }
+                        else if (chunk == "data") dataBytes = size;
+                        file.Position = Math.Min(next, file.Length);
+                    }
+                    if (byteRate <= 0 || dataBytes <= 0) throw new InvalidDataException();
+                    seconds = dataBytes / (double)byteRate;
+                    return seconds > 0;
+                }
+            }
+            catch { error = "The WAV file is incomplete or unreadable."; return false; }
+        }
         string alias = "PaceSoundCheck" + Guid.NewGuid().ToString("N");
         int result = mciSendString("open \"" + path + "\" alias " + alias, null, 0, IntPtr.Zero);
         if (result != 0) { error = MciError(result); return false; }
