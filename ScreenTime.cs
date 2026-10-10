@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.16.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.16.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.17.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.17.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -145,6 +145,7 @@ public class Settings {
     public bool UseCustomAlert=true;
     public string BuiltInAlert="Gentle notes";
     public bool DarkMode;
+    public bool DoNotDisturb;
     public DateTime BreakUntil = DateTime.MinValue;
     public bool BreakWaiting;
     public bool BreakOffscreen;
@@ -167,7 +168,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.16";
+    const string PaceVersion="0.2.17";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -321,7 +322,7 @@ public class ScreenTime : Form {
         enableStartup=ButtonAt(health,"Turn on launch at sign-in",610,20,198,38,delegate { if(startupItem!=null)startupItem.Checked=true; else SetStartWithWindows(true); RefreshTrackingHealth(); });
         trackingTimeline=new TrackingHealthTimeline { Location=new Point(18,120),Size=new Size(790,88) }; health.Controls.Add(trackingTimeline);
         trackingEvents=new ListBox { Location=new Point(18,214),Size=new Size(790,38),BorderStyle=BorderStyle.None,HorizontalScrollbar=true,BackColor=Color.FromArgb(252,251,247) }; health.Controls.Add(trackingEvents);
-        cornerBar=new CornerBar(); cornerBar.Icon=Icon; if(state.CornerPositioned)cornerBar.RestoreSavedPosition(state.CornerX,state.CornerY); cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartManualShutdown(); }; cornerBar.PauseClicked+=delegate { TogglePause(); }; cornerBar.UserPositionChanged+=delegate { state.CornerPositioned=true; state.CornerX=cornerBar.Left; state.CornerY=cornerBar.Top; Save(); }; cornerBar.PositionReset+=delegate { state.CornerPositioned=false; Save(); };
+        cornerBar=new CornerBar(); cornerBar.Icon=Icon; if(state.CornerPositioned)cornerBar.RestoreSavedPosition(state.CornerX,state.CornerY); cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartManualShutdown(); }; cornerBar.PauseClicked+=delegate { TogglePause(); }; cornerBar.DoNotDisturbClicked+=delegate { ToggleDoNotDisturb(); }; cornerBar.UserPositionChanged+=delegate { state.CornerPositioned=true; state.CornerX=cornerBar.Left; state.CornerY=cornerBar.Top; Save(); }; cornerBar.PositionReset+=delegate { state.CornerPositioned=false; Save(); };
         appPauseOverlay=new PauseOverlay(); appPauseOverlay.ResumeRequested+=delegate { ResumeAll(); }; Controls.Add(appPauseOverlay);
         VisibleChanged+=delegate { if(paused && Visible)appPauseOverlay.Cover(this); };
         tray=new NotifyIcon { Icon=Icon??SystemIcons.Application,Text="Pace",Visible=true };
@@ -488,7 +489,7 @@ public class ScreenTime : Form {
         }
     }
     void PreviewAlert() { state.AlertVolume=(int)alertVolume.Value; PlayAlert(); }
-    void PlayAlert() { alertSound.Play(state.AlertVolume,state.UseCustomAlert?CustomAlertPath:"",state.BuiltInAlert); }
+    void PlayAlert() { if(!state.DoNotDisturb)alertSound.Play(state.AlertVolume,state.UseCustomAlert?CustomAlertPath:"",state.BuiltInAlert); }
     void CopyPreviousWeek() {
         DateTime previousDate=selectedWeek.AddDays(-7); WeeklyPlan previous=state.GetWeek(previousDate);
         if(previous==null) { MessageBox.Show("There is no saved plan for the previous week yet.","Copy plan"); return; }
@@ -607,6 +608,14 @@ public class ScreenTime : Form {
         Save();
     }
     void TogglePause() { if(paused)ResumeAll(); else PauseAll(); }
+    void ToggleDoNotDisturb() {
+        state.DoNotDisturb=!state.DoNotDisturb; day.SinceReminder=0;
+        if(state.DoNotDisturb) {
+            ClearBlockMismatch(); alertSound.Stop();
+            if(!cleanupClosesPlan)StopCleanup();
+        }
+        Save(); RefreshView();
+    }
     void PauseAll() {
         if(paused)return;
         FlushForegroundActivity(); paused=true; pausedAtUtc=DateTime.UtcNow; LogTrackingEvent("Paused",DateTime.Now,DateTime.MinValue,"Pace was manually paused."); Heartbeat();
@@ -688,7 +697,7 @@ public class ScreenTime : Form {
         string key=active.WeekStart+":"+active.Day+":"+active.Start+":"+active.End+":"+active.Activity+":"+active.AllowedApps+":"+current.ToLowerInvariant();
         if(key!=mismatchKey) { HideFocusReminder(); if(key!=mismatchSnoozeKey)mismatchSnoozedUntil=DateTime.MinValue; mismatchKey=key; mismatchBlock=active.Activity; mismatchActivity=current; mismatchSeconds=0; }
         mismatchSeconds+=Math.Max(0,elapsed);
-        if(mismatchSeconds>=state.MismatchGraceMinutes*60 && DateTime.UtcNow>=mismatchSnoozedUntil && (focusToast==null || focusToast.IsDisposed) && !cleanupActive)ShowFocusReminder();
+        if(!state.DoNotDisturb && mismatchSeconds>=state.MismatchGraceMinutes*60 && DateTime.UtcNow>=mismatchSnoozedUntil && (focusToast==null || focusToast.IsDisposed) && !cleanupActive)ShowFocusReminder();
     }
     void AddBlockActivity(AdvancedBlock block,string activity,bool matched,double seconds) {
         if(block==null || string.IsNullOrWhiteSpace(activity) || seconds<=0)return;
@@ -780,18 +789,19 @@ public class ScreenTime : Form {
                 day.ActiveBlock="extra"; day.ExtraUsed+=elapsed; day.Used+=elapsed;
             } else if(!UsingAdvancedPlan)day.Used+=elapsed;
             else tracking=false;
-            if(tracking && !cleanupActive)day.SinceReminder+=elapsed;
+            if(tracking && !cleanupActive && !state.DoNotDisturb)day.SinceReminder+=elapsed;
             double left=Budget-CurrentUsed;
             if(UsingAdvancedPlan && active!=null) {
                 double blockLeft=(DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(active.End))-DateTime.Now).TotalSeconds;
                 if(blockLeft<=state.ClosingWarningMinutes*60 && (!cleanupActive || !cleanupClosesPlan)) { day.Warned=true; BeginClosingCountdown(); }
             } else if(HasPlan && left>0 && left<=state.ClosingWarningMinutes*60 && (!cleanupActive || !cleanupClosesPlan)) { day.Warned=true; BeginClosingCountdown(); }
             if(HasPlan && left<=0 && !day.Exhausted) { day.Exhausted=true; day.BreakEarned=false; StartDailyShutdown(); }
-            else if(tracking && !cleanupActive && day.SinceReminder>=state.Interval*60) { day.SinceReminder=0; BeginPeriodicCleanup(); }
+            else if(tracking && !state.DoNotDisturb && !cleanupActive && day.SinceReminder>=state.Interval*60) { day.SinceReminder=0; BeginPeriodicCleanup(); }
         }
         if(breakFinished) { day.BreakEarned=true; day.SinceReminder=0; PlayAlert(); Save(); }
     }
     void BeginPeriodicCleanup() {
+        if(state.DoNotDisturb)return;
         HideFocusReminder(); mismatchSeconds=0; StopCleanup(); cleanupActive=true; cleanupClosesPlan=false; cleanupUntil=DateTime.UtcNow.AddMinutes(state.PeriodicWrapMinutes); cleanupLastPing=state.PeriodicWrapMinutes*60;
         toast=new Reminder { Text="Wrap up",ClientSize=new Size(438,174),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=PaceTheme.Reminder };
         Round(toast,14);
@@ -927,6 +937,7 @@ public class ScreenTime : Form {
         if(state.DailyShutdown)return "SCREEN TIME COMPLETE  ·  Add more time with a reason when you need it.";
         if(Breaking)return "BREAK IN PROGRESS  ·  Screen-time tracking is paused.";
         if(state.BreakWaiting || state.BreakOffscreen)return "OFFSCREEN TIME  ·  Continue when you are ready.";
+        if(state.DoNotDisturb)return "DO NOT DISTURB  ·  Time tracking continues without reminders or automatic breaks.";
         if(UsingAdvancedPlan) { AdvancedBlock block=ActiveBlock; if(block!=null) { if(mismatchSeconds>=state.MismatchGraceMinutes*60)return "OUTSIDE THIS BLOCK  ·  "+mismatchActivity+" does not match "+block.Activity+"."; return "ACTIVE BLOCK  ·  "+block.Activity+"  ·  ends "+DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(block.End)).ToString("h:mm tt"); } if(ExtraRemaining>0)return "EXTRA TIME  ·  "+(string.IsNullOrWhiteSpace(day.ActiveReason)?"Use this time intentionally.":day.ActiveReason); DateTime? next=NextBlockStart; return next==null?"NO MORE BLOCKS THIS WEEK":"NEXT BLOCK  ·  "+next.Value.ToString("ddd h:mm tt"); }
         return "AUTO TRACKING  ·  Unlocked time counts. Lock with Win+L when you step away.";
     }
@@ -954,8 +965,9 @@ public class ScreenTime : Form {
         else if(cleanupActive) { next=CleanupSecondsLeft(); timerTitle=cleanupClosesPlan?"CLOSES IN":"BREAK IN"; }
         else { next=closingSoon?closing:periodic; timerTitle=closingSoon?"CLOSES IN":"NEXT BREAK"; }
         cornerBar.UpdateStatus(HasPlan,Budget,used,next,timerTitle);
-        if(mismatchSeconds>=state.MismatchGraceMinutes*60 && mismatchBlock.Length>0)cornerBar.SetFocusMismatch(mismatchBlock,mismatchActivity); else cornerBar.SetReason(day.ActiveReason);
+        if(!state.DoNotDisturb && mismatchSeconds>=state.MismatchGraceMinutes*60 && mismatchBlock.Length>0)cornerBar.SetFocusMismatch(mismatchBlock,mismatchActivity); else cornerBar.SetReason(day.ActiveReason);
         cornerBar.SetTrackingHealth(!saveFailed);
+        cornerBar.SetDoNotDisturb(state.DoNotDisturb);
         cornerBar.PlaceInCorner(Screen.PrimaryScreen.WorkingArea);
         cornerBar.EnsureVisible();
         cornerBar.SetDashboardOpen(Visible);
@@ -973,6 +985,7 @@ public class ScreenTime : Form {
         focusToast.Location=new Point(Math.Max(area.Left,cornerBar.Right-focusToast.Width),Math.Max(area.Top,anchor-focusToast.Height));
     }
     void Notify(string title,string message) {
+        if(state.DoNotDisturb)return;
         HideFocusReminder(); StopCleanup();
         PlayAlert();
         toast=new Reminder { Text=title,ClientSize=new Size(438,174),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=PaceTheme.Reminder };

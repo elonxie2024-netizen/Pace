@@ -208,16 +208,24 @@ try {
     $passiveControls = @($passiveNames | ForEach-Object { $corner.GetType().GetField($_,$flags).GetValue($corner) })
     Assert ($corner.Cursor -eq [Windows.Forms.Cursors]::SizeAll -and @($passiveControls | Where-Object { $_.Cursor -ne [Windows.Forms.Cursors]::SizeAll }).Count -eq 0) 'Every passive corner-bar surface must be draggable'
     $heading = $corner.GetType().GetField('heading',$flags).GetValue($corner)
-    $buttonNames = @('addTime','takeBreak','endDay','pause','minimize','resetPosition')
+    $buttonNames = @('addTime','takeBreak','endDay','pause','doNotDisturb','minimize','resetPosition')
     $cornerButtons = @($buttonNames | ForEach-Object { $corner.GetType().GetField($_,$flags).GetValue($corner) })
     Assert ($heading.Cursor -eq [Windows.Forms.Cursors]::Hand -and $heading.AccessibleRole -eq [Windows.Forms.AccessibleRole]::PushButton -and @($cornerButtons | Where-Object { $_.Cursor -ne [Windows.Forms.Cursors]::Hand }).Count -eq 0) 'Only the open/close label and actual corner-bar buttons must use clickable affordances'
     $endDayButton = $corner.GetType().GetField('endDay',$flags).GetValue($corner)
     $pauseButton = $corner.GetType().GetField('pause',$flags).GetValue($corner)
+    $dndButton = $corner.GetType().GetField('doNotDisturb',$flags).GetValue($corner)
     $trackingLabel = $corner.GetType().GetField('trackingHealth',$flags).GetValue($corner)
-    Assert ($pauseButton.Left -gt $endDayButton.Right -and $pauseButton.Right -lt $trackingLabel.Left) 'The pause button must sit between End day and tracking status without overlap'
+    Assert ($pauseButton.Left -gt $endDayButton.Right -and $dndButton.Left -gt $pauseButton.Right -and $dndButton.Right -lt $trackingLabel.Left) 'Pause and do not disturb must sit between End day and tracking status without overlap'
     $onClick = [Windows.Forms.Control].GetMethod('OnClick',$flags)
     $onClick.Invoke($passiveControls[0],@([EventArgs]::Empty))
     Assert (-not $app.Visible) 'Clicking a passive corner-bar surface must not open the dashboard'
+    $usedBeforeDnd=$day.Used; $day.SinceReminder=$state.Interval*60-1
+    $onClick.Invoke($dndButton,@([EventArgs]::Empty)); Elapsed 5 $false
+    Assert ($state.DoNotDisturb -and $day.Used -gt $usedBeforeDnd -and $day.SinceReminder -eq 0 -and -not (Field 'cleanupActive')) 'Do not disturb must keep tracking screen time while suppressing periodic reminders and automatic breaks'
+    Call 'BeginPeriodicCleanup'
+    Assert (-not (Field 'cleanupActive') -and $dndButton.AccessibleName -eq 'Turn off do not disturb') 'Do not disturb must block periodic break cleanup and expose its active state'
+    $onClick.Invoke($dndButton,@([EventArgs]::Empty))
+    Assert (-not $state.DoNotDisturb -and $dndButton.AccessibleName -eq 'Turn on do not disturb') 'Clicking the crossed bell again must restore reminders'
     $onClick.Invoke($heading,@([EventArgs]::Empty))
     [System.Windows.Forms.Application]::DoEvents()
     Assert ($app.Visible) 'The invisible hit area around Click to open must open the dashboard'
@@ -403,6 +411,7 @@ try {
     $state.AlertVolume = 73
     $state.CustomAlertFile = 'custom-alert.wav'
     $state.UseCustomAlert = $false; $state.BuiltInAlert = 'Ocean wash'
+    $state.DoNotDisturb = $true
     $currentPlan.Advanced = $true
     $state.Blocks.Add($blockA)
     $invalidBlock = New-Object AdvancedBlock
@@ -415,7 +424,7 @@ try {
     Assert ($loaded.GetWeek($thisWeek).Advanced -and $loaded.Blocks.Count -eq 1 -and $loaded.Blocks[0].AllowedApps -eq 'Word, Canvas') 'Advanced plan mode and normalized activity matching words must survive reload while invalid blocks are discarded'
     Assert (-not $loaded.GetWeek($nextWeek).Advanced) 'Advanced plan mode must stay attached to its own week'
     Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason' -and $loaded.Days[0].ActiveReason -eq 'Testing visible extra-time reason') 'Usage, extra time, and reasons must survive reload'
-    Assert ($loaded.AlertVolume -eq 73 -and $loaded.CustomAlertFile -eq 'custom-alert.wav' -and -not $loaded.UseCustomAlert -and $loaded.BuiltInAlert -eq 'Ocean wash') 'Reminder volume, custom import, and selected built-in sound must survive reload'
+    Assert ($loaded.AlertVolume -eq 73 -and $loaded.CustomAlertFile -eq 'custom-alert.wav' -and -not $loaded.UseCustomAlert -and $loaded.BuiltInAlert -eq 'Ocean wash' -and $loaded.DoNotDisturb) 'Reminder volume, sound selection, and do-not-disturb state must survive reload'
     Assert ($loaded.Interval -eq 75 -and $loaded.BreakMinutes -eq 90 -and $loaded.PeriodicWrapMinutes -eq 7 -and $loaded.ClosingWarningMinutes -eq 3 -and $loaded.MismatchGraceMinutes -eq 2 -and $loaded.MismatchSnoozeMinutes -eq 75 -and $loaded.DarkMode) 'All custom timing and appearance settings must survive reload'
     Call 'Save'
     Set-Content -LiteralPath (Join-Path $tempFolder 'state.xml') -Value '<damaged>'

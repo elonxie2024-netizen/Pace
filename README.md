@@ -57,6 +57,8 @@ Closing the main window minimizes Pace to the notification area and keeps tracki
 
 The corner bar's minus button minimizes it as a normal taskbar app. Restore it from the taskbar or choose **Show corner bar** from Pace's notification-area menu. Drag any non-button surface except the **Click to open/close** label to move the bar. The pause button freezes time accounting and reminders, dims both Pace windows beneath a large pause mark, and resumes when you click either paused window. Pace also moves a saved bar position back onto the visible desktop if the monitor layout changes.
 
+The crossed-bell button turns do not disturb on or off. While it is on, Pace keeps tracking time and still enforces the final day or block limit, but suppresses periodic break prompts, automatic breaks, focus reminders, weekly-plan reminders, and alert sounds. You can still start a break manually.
+
 The **Tracking health** tab confirms that the heartbeat is current, checks whether launch at sign-in points to the running Pace installation, and visualizes today's tracked, manually paused, locked or sleeping, untracked, and unknown periods on a timeline. Manual pauses are blue, lock or sleep is amber, and unknown tracking gaps are red. Recent events remain listed below it. If Pace was closed or stopped unexpectedly, the next launch records the unknown interval in both **Tracking health** and **Time & reasons**. Time in a tracking gap is identified as unknown and is never silently added to screen usage.
 
 ## Building the Windows installer

@@ -45,11 +45,13 @@ public sealed class CornerBar : Form {
     bool changingWindowMode;
     bool showingReason;
     bool noticeWarning;
+    bool doNotDisturbActive;
     string noticePrefix="";
     readonly Label allotted, used, next, nextTitle, heading, allottedTitle, usedTitle, reason,trackingHealth;
     readonly Button addTime, takeBreak;
     readonly Button endDay;
     readonly Button pause;
+    readonly Button doNotDisturb;
     readonly Button minimize;
     readonly Button resetPosition;
     readonly ProgressBar progress;
@@ -59,6 +61,7 @@ public sealed class CornerBar : Form {
     public event EventHandler TakeBreakClicked;
     public event EventHandler EndDayClicked;
     public event EventHandler PauseClicked;
+    public event EventHandler DoNotDisturbClicked;
     public event EventHandler UserPositionChanged;
     public event EventHandler PositionReset;
     public CornerBar() {
@@ -67,11 +70,12 @@ public sealed class CornerBar : Form {
         FormBorderStyle=FormBorderStyle.None; StartPosition=FormStartPosition.Manual;
         ShowInTaskbar=false; TopMost=true; BackColor=Color.FromArgb(35,67,58);
         Font=new Font("Segoe UI",10); Cursor=Cursors.SizeAll;
-        heading=LabelAt("PACE  /  Click to open",16,9,195,18,9);
+        heading=LabelAt("PACE  /  Click to open",16,9,170,18,9);
         heading.Cursor=Cursors.Hand; heading.AccessibleRole=AccessibleRole.PushButton; heading.AccessibleName="Open or close Pace"; heading.Click+=Open;
-        endDay=ActionButton("End day",220,7,58,22); endDay.Click+=delegate { if(EndDayClicked!=null)EndDayClicked(this,EventArgs.Empty); };
-        pause=ActionButton("\u23F8",282,7,28,22); pause.AccessibleName="Pause Pace"; pause.Font=new Font("Segoe UI Symbol",9); pause.Click+=delegate { if(PauseClicked!=null)PauseClicked(this,EventArgs.Empty); };
-        trackingHealth=LabelAt("● ACTIVE",314,9,52,18,7.5f); trackingHealth.TextAlign=ContentAlignment.MiddleRight; trackingHealth.ForeColor=Color.FromArgb(179,224,189);
+        endDay=ActionButton("End day",190,7,58,22); endDay.Click+=delegate { if(EndDayClicked!=null)EndDayClicked(this,EventArgs.Empty); };
+        pause=ActionButton("\u23F8",252,7,28,22); pause.AccessibleName="Pause Pace"; pause.Font=new Font("Segoe UI Symbol",9); pause.Click+=delegate { if(PauseClicked!=null)PauseClicked(this,EventArgs.Empty); };
+        doNotDisturb=ActionButton("",284,7,28,22); doNotDisturb.AccessibleName="Turn on do not disturb"; doNotDisturb.Paint+=DrawDoNotDisturb; doNotDisturb.Click+=delegate { if(DoNotDisturbClicked!=null)DoNotDisturbClicked(this,EventArgs.Empty); };
+        trackingHealth=LabelAt("● ACTIVE",316,9,58,18,7.5f); trackingHealth.TextAlign=ContentAlignment.MiddleRight; trackingHealth.ForeColor=Color.FromArgb(179,224,189);
         minimize=ActionButton("–",402,7,20,20); minimize.Click+=delegate { MinimizeToTaskbar(); };
         resetPosition=ActionButton("⌂",378,7,20,20); resetPosition.Font=new Font("Segoe UI Symbol",10); resetPosition.Click+=delegate { ResetPosition(); };
         reason=LabelAt("",16,34,406,50,13.5f); reason.Visible=false; reason.TextAlign=ContentAlignment.MiddleCenter; reason.BackColor=Color.FromArgb(48,85,72);
@@ -102,6 +106,14 @@ public sealed class CornerBar : Form {
         Controls.Add(label); return label;
     }
     Button ActionButton(string text,int x,int y,int w,int h) { Button button=new Button { Text=text,Location=new Point(x,y),Size=new Size(w,h),FlatStyle=FlatStyle.Flat,BackColor=Color.FromArgb(76,139,113),ForeColor=Color.White,Font=new Font("Segoe UI Semibold",8),Cursor=Cursors.Hand,TabStop=false }; button.FlatAppearance.BorderSize=0; button.FlatAppearance.MouseOverBackColor=Color.FromArgb(93,157,130); Controls.Add(button); Round(button,7); return button; }
+    void DrawDoNotDisturb(object sender,PaintEventArgs e) {
+        e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;
+        using(Pen pen=new Pen(Color.White,1.45f))
+        using(GraphicsPath bell=new GraphicsPath()) {
+            bell.AddArc(8,3,12,12,180,180); bell.AddLine(20,9,20,14); bell.AddLine(20,14,22,16); bell.AddLine(22,16,6,16); bell.AddLine(6,16,8,14); bell.CloseFigure();
+            e.Graphics.DrawPath(pen,bell); e.Graphics.DrawArc(pen,11,16,6,4,0,180); e.Graphics.DrawLine(pen,5,3,23,19);
+        }
+    }
     static void Round(Control control,int radius) { GraphicsPath path=new GraphicsPath(); int d=radius*2; path.AddArc(0,0,d,d,180,90); path.AddArc(control.Width-d-1,0,d,d,270,90); path.AddArc(control.Width-d-1,control.Height-d-1,d,d,0,90); path.AddArc(0,control.Height-d-1,d,d,90,90); path.CloseFigure(); Region old=control.Region; control.Region=new Region(path); if(old!=null)old.Dispose(); path.Dispose(); }
     void ApplyRoundedRegion() { if(Width>20 && Height>20)Round(this,16); }
     void Open(object sender,EventArgs e) { if(OpenDashboard!=null)OpenDashboard(this,EventArgs.Empty); }
@@ -147,7 +159,8 @@ public sealed class CornerBar : Form {
     public void SetDarkMode(bool dark) {
         BackColor=dark?Color.FromArgb(22,38,33):Color.FromArgb(35,67,58);
         foreach(Label label in new[]{allotted,used,next,nextTitle,heading,allottedTitle,usedTitle})label.ForeColor=Color.FromArgb(240,246,230);
-        foreach(Button button in new[]{addTime,takeBreak,endDay,pause,minimize,resetPosition}) { button.BackColor=dark?Color.FromArgb(49,91,75):Color.FromArgb(76,139,113); button.FlatAppearance.MouseOverBackColor=dark?Color.FromArgb(64,116,96):Color.FromArgb(93,157,130); }
+        foreach(Button button in new[]{addTime,takeBreak,endDay,pause,doNotDisturb,minimize,resetPosition}) { button.BackColor=dark?Color.FromArgb(49,91,75):Color.FromArgb(76,139,113); button.FlatAppearance.MouseOverBackColor=dark?Color.FromArgb(64,116,96):Color.FromArgb(93,157,130); }
+        ApplyDoNotDisturbAppearance();
         reason.BackColor=noticeWarning?(dark?Color.FromArgb(91,70,38):Color.FromArgb(104,84,54)):(dark?Color.FromArgb(35,63,53):Color.FromArgb(48,85,72));
         SetTrackingHealth(!trackingHealth.Text.Contains("UNSAVED")); Invalidate(true);
     }
@@ -172,4 +185,6 @@ public sealed class CornerBar : Form {
     public void ResetPosition() { userPositioned=false; PlaceInCorner(Screen.PrimaryScreen.WorkingArea); if(PositionReset!=null)PositionReset(this,EventArgs.Empty); }
     public void SetDashboardOpen(bool open) { heading.Text=open?"PACE  /  Click to close":"PACE  /  Click to open"; }
     public void SetPaused(bool paused) { if(paused)pauseOverlay.Cover(this); else pauseOverlay.Uncover(); }
+    public void SetDoNotDisturb(bool active) { doNotDisturbActive=active; doNotDisturb.AccessibleName=active?"Turn off do not disturb":"Turn on do not disturb"; if(active) { nextTitle.Text="DND ON"; next.Text="—"; } ApplyDoNotDisturbAppearance(); }
+    void ApplyDoNotDisturbAppearance() { doNotDisturb.BackColor=doNotDisturbActive?(PaceTheme.Dark?Color.FromArgb(105,88,52):Color.FromArgb(151,121,63)):(PaceTheme.Dark?Color.FromArgb(49,91,75):Color.FromArgb(76,139,113)); doNotDisturb.Invalidate(); }
 }
