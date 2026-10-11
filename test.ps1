@@ -46,11 +46,12 @@ try {
     $hours[0].Value = 2
     Assert $minuteInputs[0].Enabled 'Minutes must be enabled again below 24 hours'
 
-    $intervalInput = Field 'interval'; $breakInput = Field 'breakMinutes'; $wrapInput = Field 'periodicWrap'; $closingInput = Field 'closingWarning'; $graceInput = Field 'mismatchGrace'; $snoozeInput = Field 'mismatchSnooze'
+    $intervalInput = Field 'interval'; $breakInput = Field 'breakMinutes'; $wrapInput = Field 'periodicWrap'; $closingInput = Field 'closingWarning'; $graceInput = Field 'mismatchGrace'; $snoozeInput = Field 'mismatchSnooze'; $idleWarningInput = Field 'inactivityWarning'; $idleOffscreenInput = Field 'inactivityOffscreen'
     Assert ($closingInput.TotalMinutes -eq 3) 'The default screen-time ending warning must be 3m'
-    $intervalInput.TotalMinutes=75; $breakInput.TotalMinutes=90; $wrapInput.TotalMinutes=7; $closingInput.TotalMinutes=3; $graceInput.TotalMinutes=2; $snoozeInput.TotalMinutes=75
+    Assert ($idleWarningInput.TotalMinutes -eq 10 -and $idleOffscreenInput.TotalMinutes -eq 5) 'Inactivity must default to a 10m silent warning followed by 5m before offscreen activity'
+    $intervalInput.TotalMinutes=75; $breakInput.TotalMinutes=90; $wrapInput.TotalMinutes=7; $closingInput.TotalMinutes=3; $graceInput.TotalMinutes=2; $snoozeInput.TotalMinutes=75; $idleWarningInput.TotalMinutes=12; $idleOffscreenInput.TotalMinutes=4
     (Field 'alertVolume').Value=64; Call 'SaveTimingSettings'
-    Assert ($state.Interval -eq 75 -and $state.BreakMinutes -eq 90 -and $state.PeriodicWrapMinutes -eq 7 -and $state.ClosingWarningMinutes -eq 3 -and $state.MismatchGraceMinutes -eq 2 -and $state.MismatchSnoozeMinutes -eq 75 -and $state.AlertVolume -eq 64) 'Settings must save every user-facing duration independently'
+    Assert ($state.Interval -eq 75 -and $state.BreakMinutes -eq 90 -and $state.PeriodicWrapMinutes -eq 7 -and $state.ClosingWarningMinutes -eq 3 -and $state.MismatchGraceMinutes -eq 2 -and $state.MismatchSnoozeMinutes -eq 75 -and $state.InactivityWarningMinutes -eq 12 -and $state.InactivityOffscreenMinutes -eq 4 -and $state.AlertVolume -eq 64) 'Settings must save every user-facing duration independently'
     $gentleWave = [AlertSound]::CreateWave(100); $quietWave = [AlertSound]::CreateWave(25)
     $gentlePeak = 0; $quietPeak = 0
     for($sample=44;$sample -lt $gentleWave.Length;$sample+=2) { $value=[Math]::Abs([int][BitConverter]::ToInt16($gentleWave,$sample)); if($value -gt $gentlePeak){$gentlePeak=$value}; $value=[Math]::Abs([int][BitConverter]::ToInt16($quietWave,$sample)); if($value -gt $quietPeak){$quietPeak=$value} }
@@ -69,7 +70,9 @@ try {
     $minutePart = $snoozeInput.GetType().GetField('minutes',$durationFlags).GetValue($snoozeInput)
     Assert ($minutePart.Value -eq 15 -and $minutePart.Maximum -le 59) 'Custom durations must split 1h 15m into hours and a minute component below 60'
     $numericInputs = @(Descendants $app | Where-Object { $_ -is [Windows.Forms.NumericUpDown] })
-    Assert ($numericInputs.Count -ge 20 -and @($numericInputs | Where-Object { $_.TextAlign -ne [Windows.Forms.HorizontalAlignment]::Center }).Count -eq 0) 'Every visible numeric input must center its value'
+    Assert ($numericInputs.Count -ge 24 -and @($numericInputs | Where-Object { $_.TextAlign -ne [Windows.Forms.HorizontalAlignment]::Center }).Count -eq 0) 'Every visible numeric input must center its value'
+    $earlySaveSettingsButton=@($settingsButtons | Where-Object { $_.Text -eq 'Save settings' })[0]
+    Assert (-not $idleWarningInput.Bounds.IntersectsWith((Field 'alertVolume').Bounds) -and -not $idleOffscreenInput.Bounds.IntersectsWith($earlySaveSettingsButton.Bounds)) 'Inactivity settings must fit without covering the sound and save controls'
     if ($null -eq $app.BackgroundImage) {
         $testArt = New-Object Drawing.Bitmap -ArgumentList @((Join-Path $PSScriptRoot 'assets\pace-garden-fitted.png'))
         $app.GetType().GetField('originalArt',$flags).SetValue($app,$testArt)
@@ -318,6 +321,27 @@ try {
     $app.GetType().GetMethod('ContinueBreak',$flags).Invoke($app,@())
     $state.DailyShutdown = $false
 
+    $updateInactivity=$app.GetType().GetMethod('UpdateInactivity',$flags)
+    $state.InactivityWarningMinutes=12; $state.InactivityOffscreenMinutes=4
+    $updateInactivity.Invoke($app,@([double](12*60+1)))
+    $idleToast=Field 'inactivityToast'
+    Assert ($null -ne $idleToast -and $idleToast.Visible -and $idleToast.Text -eq 'Inactivity warning') 'Crossing the inactivity warning threshold must show a dedicated silent warning'
+    Assert ($idleToast -ne (Field 'toast')) 'The inactivity warning must not reuse the audio reminder window'
+    $updateInactivity.Invoke($app,@([double]0))
+    Assert ($null -eq (Field 'inactivityToast') -and -not (Field 'inactivityWarned')) 'Keyboard or mouse activity must dismiss and reset the inactivity warning'
+    $updateInactivity.Invoke($app,@([double](16*60+1)))
+    $breakScreen=Field 'breakScreen'
+    $idleNote=$breakScreen.GetType().GetField('note',$breakFlags).GetValue($breakScreen)
+    Assert ($state.BreakOffscreen -and $state.BreakWaiting -and $state.InactivityOffscreen -and $breakScreen.Visible) 'Continued inactivity must automatically enter the full-screen offscreen state'
+    Assert ($idleNote.Text -like '*no keyboard or mouse input*') 'Automatic offscreen activity must explain that inactivity caused it'
+    $beforeIdleOffscreen=$day.Used; Elapsed 60 $false
+    Assert ($day.Used -eq $beforeIdleOffscreen) 'Screen-time accounting must stop while inactivity offscreen activity is active'
+    Call 'ContinueBreak'
+    Assert (-not $state.InactivityOffscreen -and -not $state.BreakOffscreen -and -not $state.BreakWaiting) 'Continue must restore normal tracking after inactivity offscreen activity'
+    $state.DoNotDisturb=$true; $updateInactivity.Invoke($app,@([double](16*60+1)))
+    Assert ($null -eq (Field 'inactivityToast') -and -not $state.BreakOffscreen) 'Do not disturb must suppress inactivity warnings and automatic offscreen activity while tracking continues'
+    $state.DoNotDisturb=$false
+
     $day.Used = 0
     $day.SinceReminder = $state.Interval * 60 - 1
     Elapsed 2 $false
@@ -425,7 +449,7 @@ try {
     Assert (-not $loaded.GetWeek($nextWeek).Advanced) 'Advanced plan mode must stay attached to its own week'
     Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason' -and $loaded.Days[0].ActiveReason -eq 'Testing visible extra-time reason') 'Usage, extra time, and reasons must survive reload'
     Assert ($loaded.AlertVolume -eq 73 -and $loaded.CustomAlertFile -eq 'custom-alert.wav' -and -not $loaded.UseCustomAlert -and $loaded.BuiltInAlert -eq 'Ocean wash' -and $loaded.DoNotDisturb) 'Reminder volume, sound selection, and do-not-disturb state must survive reload'
-    Assert ($loaded.Interval -eq 75 -and $loaded.BreakMinutes -eq 90 -and $loaded.PeriodicWrapMinutes -eq 7 -and $loaded.ClosingWarningMinutes -eq 3 -and $loaded.MismatchGraceMinutes -eq 2 -and $loaded.MismatchSnoozeMinutes -eq 75 -and $loaded.DarkMode) 'All custom timing and appearance settings must survive reload'
+    Assert ($loaded.Interval -eq 75 -and $loaded.BreakMinutes -eq 90 -and $loaded.PeriodicWrapMinutes -eq 7 -and $loaded.ClosingWarningMinutes -eq 3 -and $loaded.MismatchGraceMinutes -eq 2 -and $loaded.MismatchSnoozeMinutes -eq 75 -and $loaded.InactivityWarningMinutes -eq 12 -and $loaded.InactivityOffscreenMinutes -eq 4 -and $loaded.DarkMode) 'All custom timing and appearance settings must survive reload'
     Call 'Save'
     Set-Content -LiteralPath (Join-Path $tempFolder 'state.xml') -Value '<damaged>'
     Call 'LoadState'
@@ -435,9 +459,10 @@ try {
     $loaded.DailyShutdown = $true
     $loaded.BreakWaiting = $true
     $loaded.BreakOffscreen = $true
+    $loaded.InactivityOffscreen = $true
     $loaded.BreakUntil = [datetime]::UtcNow.AddMinutes(5)
     $app.GetType().GetMethod('ResetForNewDay',$flags).Invoke($app,@())
-    Assert (-not $loaded.DailyShutdown -and -not $loaded.ManualShutdown -and -not $loaded.BreakWaiting -and -not $loaded.BreakOffscreen -and $loaded.BreakUntil -eq [datetime]::MinValue -and $loaded.SessionDate -eq [datetime]::Now.ToString('yyyy-MM-dd')) 'A new day must automatically clear the previous shutdown and break states'
+    Assert (-not $loaded.DailyShutdown -and -not $loaded.ManualShutdown -and -not $loaded.BreakWaiting -and -not $loaded.BreakOffscreen -and -not $loaded.InactivityOffscreen -and $loaded.BreakUntil -eq [datetime]::MinValue -and $loaded.SessionDate -eq [datetime]::Now.ToString('yyyy-MM-dd')) 'A new day must automatically clear the previous shutdown and break states'
     $savedArea = [Windows.Forms.Screen]::PrimaryScreen.WorkingArea; $savedX=$savedArea.Left+40; $savedY=$savedArea.Top+40
     $loaded.CornerPositioned=$true; $loaded.CornerX=$savedX; $loaded.CornerY=$savedY; $loaded.Days[0].ActiveReason=''
     $loaded.SessionDate = [datetime]::Now.AddDays(-1).ToString('yyyy-MM-dd'); $loaded.DailyShutdown = $true; $loaded.BreakOffscreen = $true

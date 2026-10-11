@@ -7,6 +7,7 @@ Pace is a small Windows desktop app for keeping a personal, trust-based screen-t
 - Tracks screen time and records how much time is spent on each foreground tab or app
 - Shows daily and weekly activity summaries with category visuals
 - Gives periodic wrap-up reminders with options to start or cancel the break
+- Gives a silent warning after a chosen period without keyboard or mouse input, then switches to offscreen activity after a second chosen period
 - Supports dated weekly plans with configurable reminder and break timing
 - Includes visual advanced plans with draggable blocks for named activities and times
 - Lets advanced blocks name the apps or visible browser-tab words that fit, then gives a calm course-check warning and reports matched versus outside-block time
