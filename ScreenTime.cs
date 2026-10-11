@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.18.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.18.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.19.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.19.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -171,7 +171,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.18";
+    const string PaceVersion="0.2.19";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -213,8 +213,10 @@ public class ScreenTime : Form {
     System.Windows.Forms.Timer cleanupTimer;
     DateTime cleanupUntil;
     Label cleanupLabel;
+    Button cleanupMuteButton;
     bool cleanupActive;
     bool cleanupClosesPlan;
+    bool cleanupMuted;
     int cleanupLastPing=-1;
     BreakScreen breakScreen;
     CornerBar cornerBar;
@@ -843,23 +845,25 @@ public class ScreenTime : Form {
     }
     void BeginPeriodicCleanup() {
         if(state.DoNotDisturb)return;
-        HideFocusReminder(); mismatchSeconds=0; StopCleanup(); cleanupActive=true; cleanupClosesPlan=false; cleanupUntil=DateTime.UtcNow.AddMinutes(state.PeriodicWrapMinutes); cleanupLastPing=state.PeriodicWrapMinutes*60;
+        HideFocusReminder(); mismatchSeconds=0; StopCleanup(); cleanupActive=true; cleanupClosesPlan=false; cleanupMuted=false; cleanupUntil=DateTime.UtcNow.AddMinutes(state.PeriodicWrapMinutes); cleanupLastPing=state.PeriodicWrapMinutes*60;
         toast=new Reminder { Text="Wrap up",ClientSize=new Size(438,174),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=PaceTheme.Reminder };
         Round(toast,14);
         AddLabel(toast,"TIME TO WRAP UP",16,12,406,32,15);
         AddLabel(toast,"Finish what you're doing, then a break will begin automatically.",16,52,406,40,11);
         cleanupLabel=AddLabel(toast,"Break begins in: "+CornerBar.Countdown(state.PeriodicWrapMinutes*60),16,92,406,25,13);
-        ButtonAt(toast,"Cancel break",24,126,188,delegate { CancelCleanup(); });
-        ButtonAt(toast,"Start break",226,126,188,delegate { StartBreak(); });
+        ButtonAt(toast,"Cancel break",24,126,122,delegate { CancelCleanup(); });
+        ButtonAt(toast,"Start break",158,126,122,delegate { StartBreak(); });
+        cleanupMuteButton=ButtonAt(toast,"Mute sound",292,126,122,delegate { MuteCleanupSound(); });
         StartCleanupTimer();
     }
     void BeginClosingCountdown() {
-        HideFocusReminder(); mismatchSeconds=0; StopCleanup(); cleanupActive=true; cleanupClosesPlan=true; cleanupLastPing=(int)Math.Ceiling(CleanupSecondsLeft());
-        toast=new Reminder { Text="Screen time ending",ClientSize=new Size(438,150),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=PaceTheme.Reminder };
+        HideFocusReminder(); mismatchSeconds=0; StopCleanup(); cleanupActive=true; cleanupClosesPlan=true; cleanupMuted=false; cleanupLastPing=(int)Math.Ceiling(CleanupSecondsLeft());
+        toast=new Reminder { Text="Screen time ending",ClientSize=new Size(438,190),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=PaceTheme.Reminder };
         Round(toast,14);
         AddLabel(toast,UsingAdvancedPlan && ActiveBlock!=null?"BLOCK ENDING SOON":"SCREEN TIME ENDING",16,12,406,32,15);
         AddLabel(toast,"Use this time to finish naturally. Pace will close screen time when the countdown reaches zero.",16,48,406,44,10);
         cleanupLabel=AddLabel(toast,"Closes in: "+CornerBar.Countdown(CleanupSecondsLeft()),16,101,406,28,13);
+        cleanupMuteButton=ButtonAt(toast,"Mute sound",122,140,194,delegate { MuteCleanupSound(); });
         StartCleanupTimer();
     }
     void StartCleanupTimer() {
@@ -882,7 +886,7 @@ public class ScreenTime : Form {
             else if(closing)StartDailyShutdown(); else StartBreak();
             return;
         }
-        int whole=(int)Math.Ceiling(left); foreach(int mark in new[]{60,30,10})if(whole<=mark && cleanupLastPing>mark) { cleanupLastPing=mark; PlayAlert(); break; }
+        int whole=(int)Math.Ceiling(left); foreach(int mark in new[]{60,30,10})if(whole<=mark && cleanupLastPing>mark) { cleanupLastPing=mark; if(!cleanupMuted)PlayAlert(); break; }
         if(cleanupLabel!=null && !cleanupLabel.IsDisposed)cleanupLabel.Text=(cleanupClosesPlan?"Closes in: ":"Break begins in: ")+CornerBar.Countdown(left);
         PositionReminder();
     }
@@ -892,6 +896,7 @@ public class ScreenTime : Form {
         Form current=toast; toast=null; if(current!=null && !current.IsDisposed)current.Close();
         alertSound.Stop();
     }
+    void MuteCleanupSound() { if(!cleanupActive)return; cleanupMuted=true; alertSound.Stop(); if(cleanupMuteButton!=null && !cleanupMuteButton.IsDisposed) { cleanupMuteButton.Text="Sound muted"; cleanupMuteButton.Enabled=false; } }
     void CancelCleanup() { if(cleanupClosesPlan)return; StopCleanup(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
     void StartBreak() {
         if(Breaking || state.BreakWaiting)return;

@@ -295,6 +295,10 @@ try {
     Elapsed 2 $false
     Assert $day.Warned 'Crossing the custom 3m ending-warning point must trigger warning'
     Assert ((Field 'cleanupActive') -and (Field 'cleanupClosesPlan')) 'Closing warnings must keep a live countdown to shutdown'
+    $closingMute=@((Field 'toast').Controls | Where-Object { $_ -is [Windows.Forms.Button] -and $_.Text -eq 'Mute sound' })[0]
+    Assert ($null -ne $closingMute) 'A screen-time ending reminder must let the user mute its sound without dismissing the countdown'
+    $closingMute.PerformClick()
+    Assert ((Field 'cleanupActive') -and (Field 'cleanupMuted') -and -not $closingMute.Enabled -and $closingMute.Text -eq 'Sound muted') 'Muting a closing reminder must leave its countdown active and prevent later pings'
     Call 'CancelCleanup'
     Assert (Field 'cleanupActive') 'A closing countdown must remain visible instead of behaving like a cancelable periodic break'
     $day.Used = $budget - 1
@@ -349,9 +353,12 @@ try {
     Assert ((Field 'cleanupActive') -and -not (Field 'cleanupClosesPlan')) 'Regular reminders must enter the periodic wrap-up phase'
     $periodicToast = Field 'toast'
     $periodicButtons = @($periodicToast.Controls | Where-Object { $_ -is [Windows.Forms.Button] })
-    Assert ($periodicButtons.Count -eq 2 -and $periodicButtons[0].Text -eq 'Cancel break' -and $periodicButtons[1].Text -eq 'Start break') 'Every periodic break reminder must offer Cancel break and Start break'
-    Assert (-not $periodicButtons[0].Bounds.IntersectsWith($periodicButtons[1].Bounds)) 'Periodic reminder actions must not overlap'
-    $periodicButtons[0].PerformClick()
+    $cancelPeriodic=@($periodicButtons | Where-Object { $_.Text -eq 'Cancel break' })[0]; $startPeriodic=@($periodicButtons | Where-Object { $_.Text -eq 'Start break' })[0]; $mutePeriodic=@($periodicButtons | Where-Object { $_.Text -eq 'Mute sound' })[0]
+    Assert ($periodicButtons.Count -eq 3 -and $null -ne $cancelPeriodic -and $null -ne $startPeriodic -and $null -ne $mutePeriodic) 'Every periodic break reminder must offer Cancel break, Start break, and Mute sound'
+    for($a=0;$a -lt $periodicButtons.Count;$a++){for($b=$a+1;$b -lt $periodicButtons.Count;$b++){Assert (-not $periodicButtons[$a].Bounds.IntersectsWith($periodicButtons[$b].Bounds)) 'Periodic reminder actions must not overlap'}}
+    $mutePeriodic.PerformClick()
+    Assert ((Field 'cleanupActive') -and (Field 'cleanupMuted') -and -not $mutePeriodic.Enabled -and $mutePeriodic.Text -eq 'Sound muted') 'Mute sound must stop only the sound while preserving the periodic break countdown'
+    $cancelPeriodic.PerformClick()
     Assert (-not (Field 'cleanupActive')) 'Cancel break must dismiss the periodic wrap-up without starting a break'
     Call 'BeginPeriodicCleanup'
     Assert ([Math]::Abs(((Field 'cleanupUntil')-[datetime]::UtcNow).TotalMinutes - $state.PeriodicWrapMinutes) -lt 0.1) 'The periodic wrap-up countdown must use its custom duration'
