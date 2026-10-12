@@ -31,6 +31,18 @@ try {
     Assert ($state.GetWeek($thisWeek).Minutes[0] -eq 120) 'Saved plan must own a copy of its values'
     Assert ($null -eq $state.GetWeek($nextWeek)) 'An unplanned next week must not inherit this week'
     $state.SetWeek($nextWeek, [int[]]@(60,70,80,90,100,110,120))
+    $copySource=$nextWeek.AddDays(35); $copyTarget=$copySource.AddDays(7)
+    $state.SetWeek($copySource,[int[]]@(45,60,75,90,105,120,135)); $copySourcePlan=$state.GetWeek($copySource); $copySourcePlan.Advanced=$true
+    $copySourceBlock=New-Object AdvancedBlock -Property @{ WeekStart=$copySource.ToString('yyyy-MM-dd'); Day=1; Start='09:00'; End='10:30'; Activity='Copied focus'; AllowedApps='Word' }; $state.Blocks.Add($copySourceBlock)
+    $ensureWeekPlan=$app.GetType().GetMethod('EnsureWeekPlan',$flags)
+    $state.AutoCopyPreviousWeek=$false; $ensureWeekPlan.Invoke($app,@($copyTarget))
+    Assert ($null -eq $state.GetWeek($copyTarget)) 'Turning automatic weekly copying off must leave an unplanned new week untouched'
+    $state.AutoCopyPreviousWeek=$true; $ensureWeekPlan.Invoke($app,@($copyTarget)); $copiedPlan=$state.GetWeek($copyTarget); $copiedBlock=@($state.Blocks | Where-Object { $_.WeekStart -eq $copyTarget.ToString('yyyy-MM-dd') })[0]
+    Assert ($null -ne $copiedPlan -and $copiedPlan.Advanced -and $copiedPlan.Minutes[2] -eq 75 -and $copiedBlock.Activity -eq 'Copied focus' -and $copiedBlock.AllowedApps -eq 'Word') 'Automatic weekly copying must carry simple limits, advanced mode, and advanced blocks into the next dated week'
+    $copiedPlan.Minutes[0]=33; $copySourcePlan.Minutes[0]=240; $ensureWeekPlan.Invoke($app,@($copyTarget))
+    Assert ($copiedPlan.Minutes[0] -eq 33) 'Automatic weekly copying must never overwrite a week that was already planned'
+    [void]$state.Blocks.Remove($copySourceBlock); [void]$state.Blocks.Remove($copiedBlock); [void]$state.Weeks.Remove($copySourcePlan); [void]$state.Weeks.Remove($copiedPlan)
+    for($change=$state.PlanChanges.Count-1;$change -ge 0;$change--){if($state.PlanChanges[$change].WeekStart -eq $copyTarget.ToString('yyyy-MM-dd')){$state.PlanChanges.RemoveAt($change)}}
     $day.Used = 123
     $state.SetWeek($thisWeek.AddDays(6), [int[]]@(90,90,90,90,90,90,90))
     Assert ($state.Weeks.Count -eq 2 -and $state.GetWeek($thisWeek).Minutes[0] -eq 90) 'Editing a Sunday must update the existing dated week'
@@ -47,6 +59,10 @@ try {
     Assert $minuteInputs[0].Enabled 'Minutes must be enabled again below 24 hours'
 
     $intervalInput = Field 'interval'; $breakInput = Field 'breakMinutes'; $wrapInput = Field 'periodicWrap'; $closingInput = Field 'closingWarning'; $graceInput = Field 'mismatchGrace'; $snoozeInput = Field 'mismatchSnooze'; $idleWarningInput = Field 'inactivityWarning'; $idleOffscreenInput = Field 'inactivityOffscreen'
+    $autoCopyToggle=Field 'autoCopyWeek'
+    Assert ($state.AutoCopyPreviousWeek -and $autoCopyToggle.Text -eq 'Auto-copy weeks: On' -and -not $autoCopyToggle.Bounds.IntersectsWith((Field 'timingHelp').Bounds)) 'Settings must expose automatic weekly copying without covering its help text'
+    Call 'ToggleAutoCopyPreviousWeek'; Assert (-not $state.AutoCopyPreviousWeek -and $autoCopyToggle.Text -eq 'Auto-copy weeks: Off') 'The weekly auto-copy setting must turn off immediately'
+    Call 'ToggleAutoCopyPreviousWeek'; Assert ($state.AutoCopyPreviousWeek -and $autoCopyToggle.Text -eq 'Auto-copy weeks: On') 'The weekly auto-copy setting must turn back on immediately'
     Assert ($closingInput.TotalMinutes -eq 3) 'The default screen-time ending warning must be 3m'
     Assert ($idleWarningInput.TotalMinutes -eq 10 -and $idleOffscreenInput.TotalMinutes -eq 5) 'Inactivity must default to a 10m silent warning followed by 5m before offscreen activity'
     $intervalInput.TotalMinutes=75; $breakInput.TotalMinutes=90; $wrapInput.TotalMinutes=7; $closingInput.TotalMinutes=3; $graceInput.TotalMinutes=2; $snoozeInput.TotalMinutes=75; $idleWarningInput.TotalMinutes=12; $idleOffscreenInput.TotalMinutes=4
@@ -456,7 +472,7 @@ try {
     Assert (-not $loaded.GetWeek($nextWeek).Advanced) 'Advanced plan mode must stay attached to its own week'
     Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason' -and $loaded.Days[0].ActiveReason -eq 'Testing visible extra-time reason') 'Usage, extra time, and reasons must survive reload'
     Assert ($loaded.AlertVolume -eq 73 -and $loaded.CustomAlertFile -eq 'custom-alert.wav' -and -not $loaded.UseCustomAlert -and $loaded.BuiltInAlert -eq 'Ocean wash' -and $loaded.DoNotDisturb) 'Reminder volume, sound selection, and do-not-disturb state must survive reload'
-    Assert ($loaded.Interval -eq 75 -and $loaded.BreakMinutes -eq 90 -and $loaded.PeriodicWrapMinutes -eq 7 -and $loaded.ClosingWarningMinutes -eq 3 -and $loaded.MismatchGraceMinutes -eq 2 -and $loaded.MismatchSnoozeMinutes -eq 75 -and $loaded.InactivityWarningMinutes -eq 12 -and $loaded.InactivityOffscreenMinutes -eq 4 -and $loaded.DarkMode) 'All custom timing and appearance settings must survive reload'
+    Assert ($loaded.Interval -eq 75 -and $loaded.BreakMinutes -eq 90 -and $loaded.PeriodicWrapMinutes -eq 7 -and $loaded.ClosingWarningMinutes -eq 3 -and $loaded.MismatchGraceMinutes -eq 2 -and $loaded.MismatchSnoozeMinutes -eq 75 -and $loaded.InactivityWarningMinutes -eq 12 -and $loaded.InactivityOffscreenMinutes -eq 4 -and $loaded.AutoCopyPreviousWeek -and $loaded.DarkMode) 'All custom timing, weekly copying, and appearance settings must survive reload'
     Call 'Save'
     Set-Content -LiteralPath (Join-Path $tempFolder 'state.xml') -Value '<damaged>'
     Call 'LoadState'

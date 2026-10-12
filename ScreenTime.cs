@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.19.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.19.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.20.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.20.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -148,6 +148,7 @@ public class Settings {
     public string BuiltInAlert="Gentle notes";
     public bool DarkMode;
     public bool DoNotDisturb;
+    public bool AutoCopyPreviousWeek=true;
     public DateTime BreakUntil = DateTime.MinValue;
     public bool BreakWaiting;
     public bool BreakOffscreen;
@@ -171,7 +172,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.19";
+    const string PaceVersion="0.2.20";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -226,7 +227,7 @@ public class ScreenTime : Form {
     readonly AlertSound alertSound=new AlertSound();
     bool cornerStarted;
     NumericUpDown alertVolume;
-    Button darkMode;
+    Button darkMode,autoCopyWeek;
     ComboBox soundChoice;
     bool loadingSoundChoice;
     ListBox activityList;
@@ -308,7 +309,8 @@ public class ScreenTime : Form {
         activityList=new ListBox { Location=new Point(420,98),Size=new Size(388,154),BorderStyle=BorderStyle.None,HorizontalScrollbar=true,BackColor=Color.FromArgb(252,251,247) }; activity.Controls.Add(activityList);
         activityRange.SelectedIndexChanged+=delegate { RefreshActivities(); };
         TabPage alerts=new TabPage("Settings") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(alerts);
-        AddLabel(alerts,"Timing and sound",18,10,790,30,16);
+        AddLabel(alerts,"Timing and sound",18,10,500,30,16);
+        autoCopyWeek=ButtonAt(alerts,state.AutoCopyPreviousWeek?"Auto-copy weeks: On":"Auto-copy weeks: Off",584,7,224,30,delegate { ToggleAutoCopyPreviousWeek(); });
         timingHelp=AddLabel(alerts,"Every user-facing duration uses hours and minutes. Saved values apply to new reminders and breaks.",18,39,790,24,9); timingHelp.ForeColor=PaceTheme.Muted;
         AddLabel(alerts,"Break reminder frequency",18,71,205,25,9); interval=new HourMinuteInput(1,720,state.Interval) { Location=new Point(230,66) }; alerts.Controls.Add(interval);
         AddLabel(alerts,"Break length",18,104,205,25,9); breakMinutes=new HourMinuteInput(1,240,state.BreakMinutes) { Location=new Point(230,99) }; alerts.Controls.Add(breakMinutes);
@@ -414,6 +416,7 @@ public class ScreenTime : Form {
         brandLabel.ForeColor=green; heroLabel.ForeColor=ink; subtitleLabel.ForeColor=PaceTheme.Muted; detail.ForeColor=PaceTheme.Muted; status.ForeColor=PaceTheme.Muted; weekHint.ForeColor=PaceTheme.Muted; advancedHint.ForeColor=PaceTheme.Muted; activitySummary.ForeColor=PaceTheme.Muted; timingHelp.ForeColor=PaceTheme.Muted; settingsStatus.ForeColor=PaceTheme.Muted; soundStatus.ForeColor=PaceTheme.Muted; trackingHealthDetail.ForeColor=PaceTheme.Muted;
         trackingIndicator.ForeColor=saveFailed?PaceTheme.Warning:green; trackingHealthTitle.ForeColor=saveFailed?PaceTheme.Warning:green;
         darkMode.Text=state.DarkMode?"Dark: On":"Dark: Off"; darkMode.BackColor=state.DarkMode?green:PaceTheme.Input; darkMode.ForeColor=state.DarkMode?Color.White:ink;
+        UpdateAutoCopyButton();
         activityChart.SetDarkMode(state.DarkMode); trackingTimeline.SetDarkMode(state.DarkMode); blockPreview.SetDarkMode(state.DarkMode); cornerBar.SetDarkMode(state.DarkMode);
         if(toast!=null && !toast.IsDisposed) { PaceTheme.Apply(toast); toast.BackColor=PaceTheme.Reminder; }
         if(focusToast!=null && !focusToast.IsDisposed) { PaceTheme.Apply(focusToast); focusToast.BackColor=PaceTheme.FocusReminder; }
@@ -422,6 +425,8 @@ public class ScreenTime : Form {
         StyleInputs(this); ApplyBackgroundArt(); tabs.Invalidate(); Invalidate(true);
     }
     void DarkModeChanged() { state.DarkMode=!state.DarkMode; ApplyTheme(); settingsStatus.Text=state.DarkMode?"Dark mode is on.":"Dark mode is off."; settingsStatus.ForeColor=PaceTheme.Muted; Save(); }
+    void UpdateAutoCopyButton() { if(autoCopyWeek==null)return; autoCopyWeek.Text=state.AutoCopyPreviousWeek?"Auto-copy weeks: On":"Auto-copy weeks: Off"; autoCopyWeek.BackColor=state.AutoCopyPreviousWeek?green:PaceTheme.Input; autoCopyWeek.ForeColor=state.AutoCopyPreviousWeek?Color.White:ink; }
+    void ToggleAutoCopyPreviousWeek() { state.AutoCopyPreviousWeek=!state.AutoCopyPreviousWeek; if(state.AutoCopyPreviousWeek)EnsureCurrentWeekPlan(); UpdateAutoCopyButton(); settingsStatus.Text=state.AutoCopyPreviousWeek?"Last week's plan will be copied when a new week begins.":"New weeks will wait for you to make or copy a plan."; settingsStatus.ForeColor=PaceTheme.Muted; Save(); RefreshView(); }
     void DrawTab(object sender,DrawItemEventArgs e) { Rectangle r=e.Bounds; r.Inflate(-4,-3); bool selected=e.Index==tabs.SelectedIndex; using(GraphicsPath path=new GraphicsPath()) { int d=14; path.AddArc(r.X,r.Y,d,d,180,90); path.AddArc(r.Right-d,r.Y,d,d,270,90); path.AddArc(r.Right-d,r.Bottom-d,d,d,0,90); path.AddArc(r.X,r.Bottom-d,d,d,90,90); path.CloseFigure(); using(SolidBrush brush=new SolidBrush(selected?green:sage))e.Graphics.FillPath(brush,path); } using(Font tabFont=new Font("Segoe UI Semibold",9))TextRenderer.DrawText(e.Graphics,tabs.TabPages[e.Index].Text,tabFont,r,selected?Color.White:ink,TextFormatFlags.HorizontalCenter|TextFormatFlags.VerticalCenter|TextFormatFlags.NoPrefix); }
     void ResetWeekPicker() {
         DateTime monday=Settings.Monday(DateTime.Now);
@@ -606,17 +611,18 @@ public class ScreenTime : Form {
     }
     void Save() { string temp=StatePath+".tmp"; try { Directory.CreateDirectory(folder); using(var file=File.Create(temp))new XmlSerializer(typeof(Settings)).Serialize(file,state); if(File.Exists(StatePath)) { File.Copy(StatePath,BackupPath,true); File.Replace(temp,StatePath,null); } else File.Move(temp,StatePath); saveFailed=false; } catch { try { if(File.Exists(temp))File.Delete(temp); } catch { } if(!saveFailed)MessageBox.Show("Pace could not save your plan and usage. Check available disk space and folder permissions.","Pace"); saveFailed=true; } }
     void Today() { string date=DateTime.Now.ToString("yyyy-MM-dd"); if(day!=null && day.Date==date)return; day=state.Days.Find(d=>d.Date==date); if(day==null) { day=new DayRecord { Date=date }; state.Days.Add(day); } }
-    void EnsureCurrentWeekPlan() {
-        if(state.GetWeek(DateTime.Now)!=null)return;
-        WeeklyPlan previous=state.GetWeek(Settings.Monday(DateTime.Now).AddDays(-1));
+    void EnsureCurrentWeekPlan() { EnsureWeekPlan(DateTime.Now); }
+    void EnsureWeekPlan(DateTime date) {
+        if(!state.AutoCopyPreviousWeek || state.GetWeek(date)!=null)return;
+        DateTime weekStart=Settings.Monday(date); WeeklyPlan previous=state.GetWeek(weekStart.AddDays(-7));
         if(previous==null)return;
-        state.SetWeek(DateTime.Now,(int[])previous.Minutes.Clone());
-        WeeklyPlan current=state.GetWeek(DateTime.Now); current.Advanced=previous.Advanced;
+        state.SetWeek(weekStart,(int[])previous.Minutes.Clone());
+        WeeklyPlan current=state.GetWeek(weekStart); current.Advanced=previous.Advanced;
         if(previous.Advanced) {
             string previousKey=previous.WeekStart, currentKey=current.WeekStart;
             foreach(AdvancedBlock block in state.Blocks.FindAll(b=>b.WeekStart==previousKey))state.Blocks.Add(AdvancedBlockRules.Copy(block,currentKey));
         }
-        state.PlanChanges.Add(new PlanChange { WeekStart=Settings.Monday(DateTime.Now).ToString("yyyy-MM-dd"), ChangedAt=DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Summary="Carried forward from the previous week" });
+        state.PlanChanges.Add(new PlanChange { WeekStart=weekStart.ToString("yyyy-MM-dd"), ChangedAt=DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Summary="Automatically copied from the previous week" });
         Save();
     }
     void TogglePause() { if(paused)ResumeAll(); else PauseAll(); }
@@ -666,6 +672,7 @@ public class ScreenTime : Form {
     void ResetForNewDay() {
         state.DailyShutdown=false; state.ManualShutdown=false; state.BreakWaiting=false; state.BreakOffscreen=false; state.InactivityOffscreen=false; state.BreakUntil=DateTime.MinValue;
         state.SessionDate=day.Date;
+        EnsureCurrentWeekPlan();
         StopCleanup(); ClearBlockMismatch(); if(toast!=null && !toast.IsDisposed)toast.Close(); if(breakScreen!=null && !breakScreen.IsDisposed)breakScreen.Hide();
         last=watch.Elapsed.TotalSeconds; Save();
     }
