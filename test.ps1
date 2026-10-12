@@ -32,13 +32,13 @@ try {
     Assert ($null -eq $state.GetWeek($nextWeek)) 'An unplanned next week must not inherit this week'
     $state.SetWeek($nextWeek, [int[]]@(60,70,80,90,100,110,120))
     $copySource=$nextWeek.AddDays(35); $copyTarget=$copySource.AddDays(7)
-    $state.SetWeek($copySource,[int[]]@(45,60,75,90,105,120,135)); $copySourcePlan=$state.GetWeek($copySource); $copySourcePlan.Advanced=$true
+    $state.SetWeek($copySource,[int[]]@(45,60,75,90,105,120,135)); $copySourcePlan=$state.GetWeek($copySource); $copySourcePlan.Advanced=$true; $copySourcePlan.Hybrid=$true
     $copySourceBlock=New-Object AdvancedBlock -Property @{ WeekStart=$copySource.ToString('yyyy-MM-dd'); Day=1; Start='09:00'; End='10:30'; Activity='Copied focus'; AllowedApps='Word' }; $state.Blocks.Add($copySourceBlock)
     $ensureWeekPlan=$app.GetType().GetMethod('EnsureWeekPlan',$flags)
     $state.AutoCopyPreviousWeek=$false; $ensureWeekPlan.Invoke($app,@($copyTarget))
     Assert ($null -eq $state.GetWeek($copyTarget)) 'Turning automatic weekly copying off must leave an unplanned new week untouched'
     $state.AutoCopyPreviousWeek=$true; $ensureWeekPlan.Invoke($app,@($copyTarget)); $copiedPlan=$state.GetWeek($copyTarget); $copiedBlock=@($state.Blocks | Where-Object { $_.WeekStart -eq $copyTarget.ToString('yyyy-MM-dd') })[0]
-    Assert ($null -ne $copiedPlan -and $copiedPlan.Advanced -and $copiedPlan.Minutes[2] -eq 75 -and $copiedBlock.Activity -eq 'Copied focus' -and $copiedBlock.AllowedApps -eq 'Word') 'Automatic weekly copying must carry simple limits, advanced mode, and advanced blocks into the next dated week'
+    Assert ($null -ne $copiedPlan -and $copiedPlan.Advanced -and $copiedPlan.Hybrid -and $copiedPlan.Minutes[2] -eq 75 -and $copiedBlock.Activity -eq 'Copied focus' -and $copiedBlock.AllowedApps -eq 'Word') 'Automatic weekly copying must carry combined limits, advanced mode, and advanced blocks into the next dated week'
     $copiedPlan.Minutes[0]=33; $copySourcePlan.Minutes[0]=240; $ensureWeekPlan.Invoke($app,@($copyTarget))
     Assert ($copiedPlan.Minutes[0] -eq 33) 'Automatic weekly copying must never overwrite a week that was already planned'
     [void]$state.Blocks.Remove($copySourceBlock); [void]$state.Blocks.Remove($copiedBlock); [void]$state.Weeks.Remove($copySourcePlan); [void]$state.Weeks.Remove($copiedPlan)
@@ -57,6 +57,11 @@ try {
     Assert ($minuteInputs[0].Value -eq 0 -and -not $minuteInputs[0].Enabled) 'A 24-hour plan must not allow extra minutes beyond the day'
     $hours[0].Value = 2
     Assert $minuteInputs[0].Enabled 'Minutes must be enabled again below 24 hours'
+    $planModeControl=Field 'planMode'; $planModeControl.SelectedIndex=2
+    $getControlState=[Windows.Forms.Control].GetMethod('GetState',$flags)
+    Assert ($planModeControl.Items.Count -eq 3 -and $planModeControl.SelectedItem -eq 'Limits + blocks' -and $getControlState.Invoke($hours[0],@(2)) -and $getControlState.Invoke((Field 'blockPreview'),@(2)) -and $getControlState.Invoke((Field 'editBlocks'),@(2))) 'The combined plan type must show daily limits and block controls together'
+    Assert (-not $hours[0].Bounds.IntersectsWith((Field 'blockPreview').Bounds) -and (Field 'blockPreview').Bottom -lt 190) 'Combined limits and the block preview must fit without overlapping the plan inputs or save row'
+    $planModeControl.SelectedIndex=0
 
     $intervalInput = Field 'interval'; $breakInput = Field 'breakMinutes'; $wrapInput = Field 'periodicWrap'; $closingInput = Field 'closingWarning'; $graceInput = Field 'mismatchGrace'; $snoozeInput = Field 'mismatchSnooze'; $idleWarningInput = Field 'inactivityWarning'; $idleOffscreenInput = Field 'inactivityOffscreen'
     $autoCopyToggle=Field 'autoCopyWeek'
@@ -407,11 +412,24 @@ try {
     Assert ($corner.AccessibleDescription -notlike 'Focus cue:*') 'Returning to a matching app must clear the corner mismatch immediately'
     $actualBlockRemaining = $app.GetType().GetProperty('CurrentRemaining',$flags).GetValue($app,$null)
     Assert ($actualBlockRemaining -le ([datetime]::Today.AddDays(1)-[datetime]::Now).TotalSeconds + 2) 'Advanced remaining time must follow the clock instead of claiming the full block duration'
+    $currentPlan.Hybrid=$true; $todayPlanIndex=(([int][datetime]::Now.DayOfWeek+6)%7); $currentPlan.Minutes[$todayPlanIndex]=3
+    $day.ActiveBlock=''; $day.BlockUsed=0; $day.Used=60; $day.Extra=0; $day.ExtraUsed=0; $day.Exhausted=$false; $day.Warned=$false; $state.DailyShutdown=$false; $state.BreakOffscreen=$false
+    Elapsed 30 $false
+    Assert ($day.BlockUsed -eq 30 -and $day.Used -eq 90 -and $app.GetType().GetProperty('CurrentUsed',$flags).GetValue($app,$null) -eq 90 -and $app.GetType().GetProperty('Budget',$flags).GetValue($app,$null) -eq 180) 'Limits + blocks must preserve used time across blocks and compare it with the overarching daily limit'
+    Elapsed 91 $false
+    Assert ($state.DailyShutdown -and $day.Used -ge 180 -and ($app.GetType().GetMethod('DailyShutdownMessage',$flags).Invoke($app,@())) -like '*daily screen-time limit*') 'A combined plan must shut down when its daily limit is consumed even while a block remains active'
+    $state.DailyShutdown=$false; $state.BreakOffscreen=$false; $day.Exhausted=$false; $currentPlan.Hybrid=$false; $day.Used=60; $day.BlockUsed=60
+    if ($breakScreen) { $breakScreen.Hide() }
     Call 'StartManualShutdown'; Call 'Tick'
     Assert ($state.DailyShutdown -and $state.ManualShutdown) 'A manual End screen time choice must not be undone by an active advanced block'
     $state.DailyShutdown = $false; $state.ManualShutdown = $false; $state.BreakOffscreen = $false; $day.Exhausted = $false
     if ($breakScreen) { $breakScreen.Hide() }
     $state.Blocks.Clear()
+    $currentPlan.Hybrid=$true; $day.Extra=10; $day.ExtraUsed=0; $day.Used=0
+    Call 'Tick'
+    Assert ($state.DailyShutdown -and -not $state.ManualShutdown) 'Limits + blocks must remain offscreen outside an allowed block even when general daily time remains'
+    $state.DailyShutdown=$false; $state.BreakOffscreen=$false; $day.Exhausted=$false; $currentPlan.Hybrid=$false; $day.Extra=0
+    if ($breakScreen) { $breakScreen.Hide() }
     Call 'Tick'
     Assert ($state.DailyShutdown -and -not $state.ManualShutdown) 'Advanced plans must close screen time automatically whenever no block or extra time is active'
     $state.DailyShutdown = $false; $state.BreakOffscreen = $false; $day.Exhausted = $false
@@ -459,7 +477,7 @@ try {
     $state.CustomAlertFile = 'custom-alert.wav'
     $state.UseCustomAlert = $false; $state.BuiltInAlert = 'Ocean wash'
     $state.DoNotDisturb = $true
-    $currentPlan.Advanced = $true
+    $currentPlan.Advanced = $true; $currentPlan.Hybrid = $true
     $state.Blocks.Add($blockA)
     $invalidBlock = New-Object AdvancedBlock
     $invalidBlock.WeekStart = $blockA.WeekStart; $invalidBlock.Day = 1; $invalidBlock.Start = 'bad'; $invalidBlock.End = '10:00'; $invalidBlock.Activity = ''
@@ -468,7 +486,7 @@ try {
     Call 'LoadState'
     $loaded = Field 'state'
     Assert ($loaded.Weeks.Count -eq 2 -and $loaded.GetWeek($nextWeek).Minutes[1] -eq 70) 'Dated plans must survive reload'
-    Assert ($loaded.GetWeek($thisWeek).Advanced -and $loaded.Blocks.Count -eq 1 -and $loaded.Blocks[0].AllowedApps -eq 'Word, Canvas') 'Advanced plan mode and normalized activity matching words must survive reload while invalid blocks are discarded'
+    Assert ($loaded.GetWeek($thisWeek).Advanced -and $loaded.GetWeek($thisWeek).Hybrid -and $loaded.Blocks.Count -eq 1 -and $loaded.Blocks[0].AllowedApps -eq 'Word, Canvas') 'Combined plan mode and normalized activity matching words must survive reload while invalid blocks are discarded'
     Assert (-not $loaded.GetWeek($nextWeek).Advanced) 'Advanced plan mode must stay attached to its own week'
     Assert ($loaded.Days[0].Used -eq $day.Used -and $loaded.Days[0].Extra -eq 15 -and $loaded.Days[0].Reasons[0] -eq 'Testing saved reason' -and $loaded.Days[0].ActiveReason -eq 'Testing visible extra-time reason') 'Usage, extra time, and reasons must survive reload'
     Assert ($loaded.AlertVolume -eq 73 -and $loaded.CustomAlertFile -eq 'custom-alert.wav' -and -not $loaded.UseCustomAlert -and $loaded.BuiltInAlert -eq 'Ocean wash' -and $loaded.DoNotDisturb) 'Reminder volume, sound selection, and do-not-disturb state must survive reload'

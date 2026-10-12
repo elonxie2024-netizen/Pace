@@ -18,13 +18,14 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.20.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.20.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.21.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.21.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
     public int[] Minutes = new int[7];
     public bool Advanced;
+    public bool Hybrid;
 }
 public class AdvancedBlock {
     public string WeekStart="";
@@ -172,7 +173,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.20";
+    const string PaceVersion="0.2.21";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -257,11 +258,13 @@ public class ScreenTime : Form {
     Color cream = Color.FromArgb(247,244,235), sage = Color.FromArgb(224,235,225);
     bool HasPlan { get { return state.GetWeek(DateTime.Now)!=null; } }
     bool UsingAdvancedPlan { get { WeeklyPlan week=state.GetWeek(DateTime.Now); return week!=null && week.Advanced; } }
+    bool UsingHybridPlan { get { WeeklyPlan week=state.GetWeek(DateTime.Now); return week!=null && week.Advanced && week.Hybrid; } }
     AdvancedBlock ActiveBlock { get { if(!UsingAdvancedPlan)return null; string key=Settings.Monday(DateTime.Now).ToString("yyyy-MM-dd"); int dow=(int)DateTime.Now.DayOfWeek; double now=DateTime.Now.TimeOfDay.TotalMinutes; return state.Blocks.Find(b=>b.WeekStart==key && b.Day==dow && AdvancedBlockRules.Minutes(b.Start)<=now && now<AdvancedBlockRules.Minutes(b.End)); } }
     double ExtraRemaining { get { return Math.Max(0,day.Extra*60-day.ExtraUsed); } }
-    double CurrentUsed { get { return UsingAdvancedPlan?(ActiveBlock==null?day.ExtraUsed:day.BlockUsed):day.Used; } }
-    int Budget { get { WeeklyPlan week=state.GetWeek(DateTime.Now); AdvancedBlock block=ActiveBlock; if(UsingAdvancedPlan)return block==null?day.Extra*60:(AdvancedBlockRules.Minutes(block.End)-AdvancedBlockRules.Minutes(block.Start))*60+(int)Math.Ceiling(ExtraRemaining); return (week==null?0:week.Minutes[((int)DateTime.Now.DayOfWeek+6)%7]*60)+day.Extra*60; } }
-    double CurrentRemaining { get { if(!HasPlan)return 0; AdvancedBlock block=ActiveBlock; if(UsingAdvancedPlan)return block==null?ExtraRemaining:Math.Max(0,(DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(block.End))-DateTime.Now).TotalSeconds)+ExtraRemaining; return Math.Max(0,Budget-day.Used); } }
+    int DailyBudget { get { WeeklyPlan week=state.GetWeek(DateTime.Now); return (week==null?0:week.Minutes[((int)DateTime.Now.DayOfWeek+6)%7]*60)+day.Extra*60; } }
+    double CurrentUsed { get { return UsingHybridPlan?day.Used:(UsingAdvancedPlan?(ActiveBlock==null?day.ExtraUsed:day.BlockUsed):day.Used); } }
+    int Budget { get { WeeklyPlan week=state.GetWeek(DateTime.Now); AdvancedBlock block=ActiveBlock; if(UsingHybridPlan)return DailyBudget; if(UsingAdvancedPlan)return block==null?day.Extra*60:(AdvancedBlockRules.Minutes(block.End)-AdvancedBlockRules.Minutes(block.Start))*60+(int)Math.Ceiling(ExtraRemaining); return DailyBudget; } }
+    double CurrentRemaining { get { if(!HasPlan)return 0; AdvancedBlock block=ActiveBlock; if(UsingHybridPlan)return Math.Max(0,DailyBudget-day.Used); if(UsingAdvancedPlan)return block==null?ExtraRemaining:Math.Max(0,(DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(block.End))-DateTime.Now).TotalSeconds)+ExtraRemaining; return Math.Max(0,Budget-day.Used); } }
     DateTime? NextBlockStart { get { DateTime? best=null; foreach(AdvancedBlock b in state.Blocks) { DateTime monday; if(!DateTime.TryParse(b.WeekStart,out monday))continue; WeeklyPlan week=state.GetWeek(monday); if(week==null || !week.Advanced)continue; DateTime candidate=monday.Date.AddDays(((b.Day+6)%7)).AddMinutes(AdvancedBlockRules.Minutes(b.Start)); if(candidate>DateTime.Now && (best==null || candidate<best))best=candidate; } return best; } }
     bool Breaking { get { return state.BreakUntil > DateTime.UtcNow; } }
     public ScreenTime() : this(null) { }
@@ -289,7 +292,7 @@ public class ScreenTime : Form {
         TabPage weekly=new TabPage("Weekly plan") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(weekly);
         string[] names={"Mon","Tue","Wed","Thu","Fri","Sat","Sun"};
         weekPicker=new ComboBox { Location=new Point(18,10),Size=new Size(550,28),DropDownStyle=ComboBoxStyle.DropDownList }; weekly.Controls.Add(weekPicker);
-        AddLabel(weekly,"Plan type",590,10,70,25,10); planMode=new ComboBox { Location=new Point(660,8),Size=new Size(148,28),DropDownStyle=ComboBoxStyle.DropDownList }; planMode.Items.AddRange(new object[]{"Simple limits","Advanced blocks"}); planMode.SelectedIndex=0; weekly.Controls.Add(planMode);
+        AddLabel(weekly,"Plan type",590,10,70,25,10); planMode=new ComboBox { Location=new Point(660,8),Size=new Size(148,28),DropDownStyle=ComboBoxStyle.DropDownList }; planMode.Items.AddRange(new object[]{"Simple limits","Advanced blocks","Limits + blocks"}); planMode.SelectedIndex=0; weekly.Controls.Add(planMode);
         for(int i=0;i<7;i++) { int index=i, x=18+i*112; planDayLabels[i]=AddLabel(weekly,names[i],x,49,99,24,11); planHours[i]=new NumericUpDown { Location=new Point(x,77),Size=new Size(45,28),Minimum=0,Maximum=24 }; planMinutes[i]=new NumericUpDown { Location=new Point(x+48,77),Size=new Size(45,28),Minimum=0,Maximum=59,Increment=5 }; planHours[i].ValueChanged+=delegate { bool fullDay=planHours[index].Value==24; if(fullDay)planMinutes[index].Value=0; planMinutes[index].Enabled=!fullDay; }; weekly.Controls.Add(planHours[i]); weekly.Controls.Add(planMinutes[i]); }
         weekHint=AddLabel(weekly,"",18,112,800,25,10);
         blockPreview=new AdvancedSchedulePreview { Location=new Point(18,47),Size=new Size(620,132),Visible=false }; weekly.Controls.Add(blockPreview);
@@ -358,7 +361,7 @@ public class ScreenTime : Form {
         StyleInputs(this);
         ApplyTheme();
         timer=new System.Windows.Forms.Timer { Interval=1000 }; timer.Tick+=delegate { Tick(); }; timer.Start(); RefreshView();
-        Shown+=delegate { cornerStarted=true; Hide(); if(UsingAdvancedPlan && state.DailyShutdown && !state.ManualShutdown && ActiveBlock!=null)ResumeForActiveBlock(); UpdateCorner(); if(UsingAdvancedPlan && ActiveBlock==null && ExtraRemaining<=0)StartDailyShutdown(); else if(state.DailyShutdown) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowDailyShutdown(DailyShutdownMessage()); } else if(state.BreakOffscreen) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowOffscreen(state.InactivityOffscreen?InactivityOffscreenMessage():"Continue when you are ready. Screen time stays stopped until then."); } else if(state.BreakWaiting) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowFinished(); } else if(Breaking) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowBreak(state.BreakUntil); } PromptForWeek(); string notice=(stateNotice+" "+sessionNotice).Trim(); if(notice.Length>0) { tray.BalloonTipTitle=sessionNotice.Length>0?"Pace tracking resumed":"Pace data recovery"; tray.BalloonTipText=notice; tray.ShowBalloonTip(12000); } System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer { Interval=8000 }; updateTimer.Tick+=delegate { updateTimer.Stop(); updateTimer.Dispose(); CheckForUpdates(false); }; updateTimer.Start(); };
+        Shown+=delegate { cornerStarted=true; Hide(); if(UsingAdvancedPlan && state.DailyShutdown && !state.ManualShutdown && ActiveBlock!=null && (!UsingHybridPlan || CurrentRemaining>0))ResumeForActiveBlock(); UpdateCorner(); if(UsingHybridPlan && CurrentRemaining<=0)StartDailyShutdown(); else if(UsingAdvancedPlan && ActiveBlock==null && (UsingHybridPlan || ExtraRemaining<=0))StartDailyShutdown(); else if(state.DailyShutdown) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowDailyShutdown(DailyShutdownMessage()); } else if(state.BreakOffscreen) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowOffscreen(state.InactivityOffscreen?InactivityOffscreenMessage():"Continue when you are ready. Screen time stays stopped until then."); } else if(state.BreakWaiting) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowFinished(); } else if(Breaking) { if(breakScreen==null)breakScreen=new BreakScreen(CancelBreak,ContinueBreak,OffscreenActivity,AddTime); breakScreen.ShowBreak(state.BreakUntil); } PromptForWeek(); string notice=(stateNotice+" "+sessionNotice).Trim(); if(notice.Length>0) { tray.BalloonTipTitle=sessionNotice.Length>0?"Pace tracking resumed":"Pace data recovery"; tray.BalloonTipText=notice; tray.ShowBalloonTip(12000); } System.Windows.Forms.Timer updateTimer=new System.Windows.Forms.Timer { Interval=8000 }; updateTimer.Tick+=delegate { updateTimer.Stop(); updateTimer.Dispose(); CheckForUpdates(false); }; updateTimer.Start(); };
     }
 
     string StartupCommand { get { return "\""+Application.ExecutablePath+"\""; } }
@@ -439,11 +442,13 @@ public class ScreenTime : Form {
         for(int i=0;i<7;i++) { int total=week==null?0:week.Minutes[i]; planHours[i].Value=total/60; planMinutes[i].Value=total%60; }
         weekHint.Text=week==null ? "No plan yet. Choose hours and minutes for each day, then save this week's plan." : "Saved for this week only. Edit anytime. Minutes are limited to 0-59.";
         string key=Settings.Monday(selectedWeek).ToString("yyyy-MM-dd"); pendingBlocks.Clear(); foreach(AdvancedBlock block in state.Blocks.FindAll(b=>b.WeekStart==key))pendingBlocks.Add(AdvancedBlockRules.Copy(block,key));
-        planMode.SelectedIndex=week!=null && week.Advanced?1:0; blockPreview.SetBlocks(pendingBlocks); UpdatePlanModeUI();
+        planMode.SelectedIndex=week!=null && week.Advanced?(week.Hybrid?2:1):0; blockPreview.SetBlocks(pendingBlocks); UpdatePlanModeUI();
     }
     void UpdatePlanModeUI() {
-        bool advanced=planMode.SelectedIndex==1; blockPreview.Visible=advanced; editBlocks.Visible=advanced; advancedHint.Visible=advanced; weekHint.Visible=!advanced;
-        for(int i=0;i<7;i++) { planDayLabels[i].Visible=!advanced; planHours[i].Visible=!advanced; planMinutes[i].Visible=!advanced; }
+        bool advanced=planMode.SelectedIndex>=1, hybrid=planMode.SelectedIndex==2; blockPreview.Visible=advanced; editBlocks.Visible=advanced; advancedHint.Visible=advanced; weekHint.Visible=!advanced;
+        for(int i=0;i<7;i++) { planDayLabels[i].Visible=!advanced || hybrid; planHours[i].Visible=!advanced || hybrid; planMinutes[i].Visible=!advanced || hybrid; }
+        blockPreview.Location=hybrid?new Point(18,112):new Point(18,47); blockPreview.Size=hybrid?new Size(620,66):new Size(620,132);
+        editBlocks.Location=hybrid?new Point(660,112):new Point(660,55); advancedHint.Location=hybrid?new Point(660,48):new Point(660,103); advancedHint.Size=hybrid?new Size(148,58):new Size(148,68);
         if(advanced) { int guided=pendingBlocks.FindAll(b=>AdvancedBlockRules.HasActivityRules(b)).Count; advancedHint.Text=pendingBlocks.Count==0?"No blocks yet.\r\nOpen the visual editor to shape this week.":pendingBlocks.Count+" block"+(pendingBlocks.Count==1?"":"s")+".\r\n"+guided+" with app cues."; }
     }
     void OpenAdvancedEditor() {
@@ -458,13 +463,13 @@ public class ScreenTime : Form {
         foreach(AdvancedBlock block in pendingBlocks)state.Blocks.Add(AdvancedBlockRules.Copy(block,key));
     }
     void SaveWeekPlan() {
-        bool advanced=planMode.SelectedIndex==1;
+        bool advanced=planMode.SelectedIndex>=1, hybrid=planMode.SelectedIndex==2;
         if(advanced && pendingBlocks.Count==0) { MessageBox.Show("Add at least one allowed-time block before saving an advanced plan.","Advanced plan"); OpenAdvancedEditor(); return; }
         int[] values=new int[7]; for(int i=0;i<7;i++)values[i]=(int)planHours[i].Value*60+(int)planMinutes[i].Value;
-        state.SetWeek(selectedWeek,values); WeeklyPlan week=state.GetWeek(selectedWeek); week.Advanced=advanced; state.AdvancedPlan=advanced; SaveBlocks();
-        state.PlanChanges.Add(new PlanChange { WeekStart=Settings.Monday(selectedWeek).ToString("yyyy-MM-dd"), ChangedAt=DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Summary=advanced?"Advanced plan saved: "+pendingBlocks.Count+" blocks, "+pendingBlocks.FindAll(b=>AdvancedBlockRules.HasActivityRules(b)).Count+" with app cues":"Plan saved: "+FormatPlan(values) });
+        state.SetWeek(selectedWeek,values); WeeklyPlan week=state.GetWeek(selectedWeek); week.Advanced=advanced; week.Hybrid=hybrid; state.AdvancedPlan=advanced; SaveBlocks();
+        state.PlanChanges.Add(new PlanChange { WeekStart=Settings.Monday(selectedWeek).ToString("yyyy-MM-dd"), ChangedAt=DateTime.Now.ToString("yyyy-MM-dd HH:mm"), Summary=hybrid?"Limits + blocks saved: "+FormatPlan(values)+" "+pendingBlocks.Count+" blocks":advanced?"Advanced plan saved: "+pendingBlocks.Count+" blocks, "+pendingBlocks.FindAll(b=>AdvancedBlockRules.HasActivityRules(b)).Count+" with app cues":"Plan saved: "+FormatPlan(values) });
         if(selectedWeek==Settings.Monday(DateTime.Now)) { day.Warned=false; day.Exhausted=false; }
-        Save(); LoadWeekEditor(); if(selectedWeek==Settings.Monday(DateTime.Now) && advanced && ActiveBlock==null && ExtraRemaining<=0)StartDailyShutdown(); else RefreshView();
+        Save(); LoadWeekEditor(); if(selectedWeek==Settings.Monday(DateTime.Now) && advanced && ActiveBlock==null && (hybrid || ExtraRemaining<=0))StartDailyShutdown(); else RefreshView();
     }
     void SaveTimingSettings() {
         foreach(HourMinuteInput input in new[]{interval,breakMinutes,periodicWrap,closingWarning,mismatchGrace,mismatchSnooze,inactivityWarning,inactivityOffscreen})if(!input.IsValid) { settingsStatus.Text="Each duration must be at least 1m."; settingsStatus.ForeColor=PaceTheme.Error; return; }
@@ -511,7 +516,7 @@ public class ScreenTime : Form {
         DateTime previousDate=selectedWeek.AddDays(-7); WeeklyPlan previous=state.GetWeek(previousDate);
         if(previous==null) { MessageBox.Show("There is no saved plan for the previous week yet.","Copy plan"); return; }
         for(int i=0;i<7;i++) { planHours[i].Value=previous.Minutes[i]/60; planMinutes[i].Value=previous.Minutes[i]%60; }
-        planMode.SelectedIndex=previous.Advanced?1:0; pendingBlocks.Clear(); string previousKey=Settings.Monday(previousDate).ToString("yyyy-MM-dd"), currentKey=Settings.Monday(selectedWeek).ToString("yyyy-MM-dd");
+        planMode.SelectedIndex=previous.Advanced?(previous.Hybrid?2:1):0; pendingBlocks.Clear(); string previousKey=Settings.Monday(previousDate).ToString("yyyy-MM-dd"), currentKey=Settings.Monday(selectedWeek).ToString("yyyy-MM-dd");
         foreach(AdvancedBlock block in state.Blocks.FindAll(b=>b.WeekStart==previousKey))pendingBlocks.Add(AdvancedBlockRules.Copy(block,currentKey));
         blockPreview.SetBlocks(pendingBlocks); weekHint.Text="Copied the previous week's plan. Save this week when it looks right."; UpdatePlanModeUI();
     }
@@ -558,7 +563,7 @@ public class ScreenTime : Form {
         if(state.LastHeartbeat==null)state.LastHeartbeat=""; if(state.LastStoppedAt==null)state.LastStoppedAt="";
         List<AdvancedBlock> validBlocks=new List<AdvancedBlock>(); foreach(AdvancedBlock savedBlock in state.Blocks)if(AdvancedBlockRules.IsValid(savedBlock) && state.Weeks.Exists(w=>w.WeekStart==savedBlock.WeekStart) && !AdvancedBlockRules.HasConflict(validBlocks,savedBlock,null)) { savedBlock.AllowedApps=AdvancedBlockRules.NormalizeAllowedApps(savedBlock.AllowedApps); validBlocks.Add(savedBlock); } state.Blocks=validBlocks;
         if(!state.AdvancedModesMigrated) { if(state.AdvancedPlan)foreach(WeeklyPlan savedWeek in state.Weeks)if(state.Blocks.Exists(b=>b.WeekStart==savedWeek.WeekStart))savedWeek.Advanced=true; state.AdvancedModesMigrated=true; }
-        foreach(WeeklyPlan savedWeek in state.Weeks)if(savedWeek.Advanced && !state.Blocks.Exists(b=>b.WeekStart==savedWeek.WeekStart))savedWeek.Advanced=false;
+        foreach(WeeklyPlan savedWeek in state.Weeks) { if(savedWeek.Hybrid)savedWeek.Advanced=true; if(savedWeek.Advanced && !state.Blocks.Exists(b=>b.WeekStart==savedWeek.WeekStart)) { savedWeek.Advanced=false; savedWeek.Hybrid=false; } }
         if(string.IsNullOrEmpty(state.SessionDate))foreach(DayRecord savedDay in state.Days)if(string.CompareOrdinal(savedDay.Date,state.SessionDate)>0)state.SessionDate=savedDay.Date;
         state.AlertVolume=Math.Max(0,Math.Min(100,state.AlertVolume));
         state.CustomAlertFile=string.IsNullOrWhiteSpace(state.CustomAlertFile)?"":Path.GetFileName(state.CustomAlertFile);
@@ -617,7 +622,7 @@ public class ScreenTime : Form {
         DateTime weekStart=Settings.Monday(date); WeeklyPlan previous=state.GetWeek(weekStart.AddDays(-7));
         if(previous==null)return;
         state.SetWeek(weekStart,(int[])previous.Minutes.Clone());
-        WeeklyPlan current=state.GetWeek(weekStart); current.Advanced=previous.Advanced;
+        WeeklyPlan current=state.GetWeek(weekStart); current.Advanced=previous.Advanced; current.Hybrid=previous.Hybrid;
         if(previous.Advanced) {
             string previousKey=previous.WeekStart, currentKey=current.WeekStart;
             foreach(AdvancedBlock block in state.Blocks.FindAll(b=>b.WeekStart==previousKey))state.Blocks.Add(AdvancedBlockRules.Copy(block,currentKey));
@@ -662,9 +667,9 @@ public class ScreenTime : Form {
         string currentDate=DateTime.Now.ToString("yyyy-MM-dd"); if(day.Date!=currentDate) { FlushForegroundActivity(); Today(); elapsed=0; ResetForNewDay(); todayLabel.Text="TODAY  "+DateTime.Now.ToString("dddd, MMM d"); ResetWeekPicker(); }
         UpdateInactivity(SystemIdleSeconds());
         AdvancedBlock before=ActiveBlock;
-        if(UsingAdvancedPlan && state.DailyShutdown && !state.ManualShutdown && before!=null)ResumeForActiveBlock();
+        if(UsingAdvancedPlan && state.DailyShutdown && !state.ManualShutdown && before!=null && (!UsingHybridPlan || CurrentRemaining>0))ResumeForActiveBlock();
         ApplyElapsed(elapsed,sessionLocked);
-        if(UsingAdvancedPlan && !state.DailyShutdown && before==null && ExtraRemaining<=0)StartDailyShutdown();
+        if(UsingAdvancedPlan && !state.DailyShutdown && before==null && (UsingHybridPlan || ExtraRemaining<=0))StartDailyShutdown();
         UpdateCleanup();
         TrackForeground(elapsed);
         if(++ticks%15==0) { Heartbeat(); Save(); } RefreshView(); if(!sessionLocked)PromptForWeek();
@@ -785,7 +790,7 @@ public class ScreenTime : Form {
     static string ActivityDuration(double seconds) { return FormatDuration(seconds); }
     int PlannedSecondsForDay(DateTime date) {
         WeeklyPlan week=state.GetWeek(date); if(week==null)return 0;
-        if(!week.Advanced)return week.Minutes[((int)date.DayOfWeek+6)%7]*60;
+        if(!week.Advanced || week.Hybrid)return week.Minutes[((int)date.DayOfWeek+6)%7]*60;
         string key=Settings.Monday(date).ToString("yyyy-MM-dd"); int total=0; foreach(AdvancedBlock block in state.Blocks)if(block.WeekStart==key && block.Day==(int)date.DayOfWeek)total+=(AdvancedBlockRules.Minutes(block.End)-AdvancedBlockRules.Minutes(block.Start))*60; return total;
     }
     List<DayRecord> ActivityReportDays() {
@@ -831,7 +836,13 @@ public class ScreenTime : Form {
         if(!locked && !Breaking && !state.BreakWaiting && !state.DailyShutdown) {
             AdvancedBlock active=ActiveBlock;
             bool tracking=true;
-            if(UsingAdvancedPlan && active!=null) {
+            if(UsingHybridPlan) {
+                if(active!=null && DailyBudget-day.Used>0) {
+                    string key=active.WeekStart+":"+active.Day+":"+active.Start;
+                    if(key!=day.ActiveBlock) { day.ActiveBlock=key; day.BlockUsed=0; day.Warned=false; day.Exhausted=false; }
+                    day.BlockUsed+=elapsed; day.Used+=elapsed;
+                } else tracking=false;
+            } else if(UsingAdvancedPlan && active!=null) {
                 string key=active.WeekStart+":"+active.Day+":"+active.Start;
                 if(key!=day.ActiveBlock) { day.ActiveBlock=key; day.BlockUsed=0; day.Warned=false; day.Exhausted=false; }
                 day.BlockUsed+=elapsed; day.Used+=elapsed;
@@ -843,6 +854,7 @@ public class ScreenTime : Form {
             double left=Budget-CurrentUsed;
             if(UsingAdvancedPlan && active!=null) {
                 double blockLeft=(DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(active.End))-DateTime.Now).TotalSeconds;
+                if(UsingHybridPlan)blockLeft=Math.Min(blockLeft,left);
                 if(blockLeft<=state.ClosingWarningMinutes*60 && (!cleanupActive || !cleanupClosesPlan)) { day.Warned=true; BeginClosingCountdown(); }
             } else if(HasPlan && left>0 && left<=state.ClosingWarningMinutes*60 && (!cleanupActive || !cleanupClosesPlan)) { day.Warned=true; BeginClosingCountdown(); }
             if(HasPlan && left<=0 && !day.Exhausted) { day.Exhausted=true; day.BreakEarned=false; StartDailyShutdown(); }
@@ -867,7 +879,9 @@ public class ScreenTime : Form {
         HideFocusReminder(); mismatchSeconds=0; StopCleanup(); cleanupActive=true; cleanupClosesPlan=true; cleanupMuted=false; cleanupLastPing=(int)Math.Ceiling(CleanupSecondsLeft());
         toast=new Reminder { Text="Screen time ending",ClientSize=new Size(438,190),FormBorderStyle=FormBorderStyle.None,StartPosition=FormStartPosition.Manual,TopMost=true,ShowInTaskbar=false,BackColor=PaceTheme.Reminder };
         Round(toast,14);
-        AddLabel(toast,UsingAdvancedPlan && ActiveBlock!=null?"BLOCK ENDING SOON":"SCREEN TIME ENDING",16,12,406,32,15);
+        AdvancedBlock closingBlock=ActiveBlock; bool blockEnding=UsingAdvancedPlan && closingBlock!=null;
+        if(blockEnding && UsingHybridPlan)blockEnding=(DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(closingBlock.End))-DateTime.Now).TotalSeconds<DailyBudget-day.Used;
+        AddLabel(toast,blockEnding?"BLOCK ENDING SOON":"SCREEN TIME ENDING",16,12,406,32,15);
         AddLabel(toast,"Use this time to finish naturally. Pace will close screen time when the countdown reaches zero.",16,48,406,44,10);
         cleanupLabel=AddLabel(toast,"Closes in: "+CornerBar.Countdown(CleanupSecondsLeft()),16,101,406,28,13);
         cleanupMuteButton=ButtonAt(toast,"Mute sound",122,140,194,delegate { MuteCleanupSound(); });
@@ -881,7 +895,7 @@ public class ScreenTime : Form {
     }
     double CleanupSecondsLeft() {
         if(!cleanupClosesPlan)return (cleanupUntil-DateTime.UtcNow).TotalSeconds;
-        if(UsingAdvancedPlan) { AdvancedBlock active=ActiveBlock; if(active!=null)return (DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(active.End))-DateTime.Now).TotalSeconds; return ExtraRemaining; }
+        if(UsingAdvancedPlan) { AdvancedBlock active=ActiveBlock; if(active!=null) { double blockLeft=(DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(active.End))-DateTime.Now).TotalSeconds; return UsingHybridPlan?Math.Min(blockLeft,Math.Max(0,DailyBudget-day.Used)):blockLeft; } return UsingHybridPlan?0:ExtraRemaining; }
         return Budget-day.Used;
     }
     void UpdateCleanup() {
@@ -889,7 +903,7 @@ public class ScreenTime : Form {
         double left=CleanupSecondsLeft();
         if(left<=0) {
             bool closing=cleanupClosesPlan; StopCleanup();
-            if(closing && UsingAdvancedPlan && ExtraRemaining>0) { day.ActiveBlock="extra"; day.Warned=false; day.Exhausted=false; Save(); RefreshView(); }
+            if(closing && UsingAdvancedPlan && !UsingHybridPlan && ExtraRemaining>0) { day.ActiveBlock="extra"; day.Warned=false; day.Exhausted=false; Save(); RefreshView(); }
             else if(closing)StartDailyShutdown(); else StartBreak();
             return;
         }
@@ -923,7 +937,7 @@ public class ScreenTime : Form {
         breakScreen.ShowDailyShutdown(DailyShutdownMessage()); RefreshView();
     }
     void ResumeForActiveBlock() { state.DailyShutdown=false; state.BreakOffscreen=false; state.InactivityOffscreen=false; day.ActiveBlock=""; day.ActiveReason=""; day.BlockUsed=0; day.Exhausted=false; if(breakScreen!=null)breakScreen.Hide(); Save(); }
-    string DailyShutdownMessage() { DateTime? next=UsingAdvancedPlan && !state.ManualShutdown?NextBlockStart:null; return next==null?"Your daily screen-time plan is complete. Add more time if you have a reason.":"This block is complete. Your next block starts "+next.Value.ToString("ddd h:mm tt")+"."; }
+    string DailyShutdownMessage() { if(UsingHybridPlan && CurrentRemaining<=0)return "Your daily screen-time limit is complete. Add more time if you have a reason."; DateTime? next=UsingAdvancedPlan && !state.ManualShutdown?NextBlockStart:null; return next==null?"Your daily screen-time plan is complete. Add more time if you have a reason.":"This block is complete. Your next block starts "+next.Value.ToString("ddd h:mm tt")+"."; }
     void CancelBreak() { if(!Breaking && !state.BreakWaiting && !state.BreakOffscreen)return; state.BreakUntil=DateTime.MinValue; state.BreakWaiting=false; state.BreakOffscreen=false; state.InactivityOffscreen=false; if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
     void ContinueBreak() { if(!state.BreakWaiting && !state.BreakOffscreen)return; state.BreakWaiting=false; state.BreakOffscreen=false; state.InactivityOffscreen=false; if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
     void OffscreenActivity() { state.BreakOffscreen=true; state.BreakWaiting=true; state.InactivityOffscreen=false; state.BreakUntil=DateTime.MinValue; if(breakScreen!=null)breakScreen.SetOffscreen(); Save(); RefreshView(); }
@@ -949,14 +963,14 @@ public class ScreenTime : Form {
                 Today(); if(Breaking || (CurrentUsed>=Budget && !day.BreakEarned && !state.DailyShutdown)) { MessageBox.Show(dialog,"Your plan has ended. Take a break before adding time."); dialog.Close(); return; }
                 string cleanReason=reason.Text.Trim().Replace("\r"," ").Replace("\n"," ");
                 day.Extra+=added; day.Reasons.Add(DateTime.Now.ToString("HH:mm")+"  +"+FormatDuration(added*60)+"  "+cleanReason); if(restoreDailyShutdown)day.ActiveReason=cleanReason;
-                day.Warned=false; day.Exhausted=false; day.BreakEarned=false; if(UsingAdvancedPlan && ActiveBlock==null)day.ActiveBlock="extra";
+                day.Warned=false; day.Exhausted=false; day.BreakEarned=false; if(UsingAdvancedPlan && !UsingHybridPlan && ActiveBlock==null)day.ActiveBlock="extra";
                 state.DailyShutdown=false; state.ManualShutdown=false; state.BreakOffscreen=false; state.BreakWaiting=false; state.InactivityOffscreen=false; StopCleanup(); if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); dialog.DialogResult=DialogResult.OK;
             });
             if(!restoreDailyShutdown)PaceTheme.Apply(dialog);
             if(restoreDailyShutdown)foreach(Control control in content.Controls)if(control is Label)control.ForeColor=Color.White;
             dialog.ShowDialog(this);
             RestoreDailyShutdown(restoreDailyShutdown);
-            RefreshView();
+            if(UsingHybridPlan && ActiveBlock==null && !state.DailyShutdown)StartDailyShutdown(); else RefreshView();
         }
     }
     void RestoreDailyShutdown(bool restore) { if(restore && state.DailyShutdown && breakScreen!=null)breakScreen.ShowDailyShutdown(DailyShutdownMessage()); }
@@ -991,13 +1005,13 @@ public class ScreenTime : Form {
         if(Breaking)return "BREAK IN PROGRESS  ·  Screen-time tracking is paused.";
         if(state.BreakWaiting || state.BreakOffscreen)return "OFFSCREEN TIME  ·  Continue when you are ready.";
         if(state.DoNotDisturb)return "DO NOT DISTURB  ·  Time tracking continues without reminders or automatic breaks.";
-        if(UsingAdvancedPlan) { AdvancedBlock block=ActiveBlock; if(block!=null) { if(mismatchSeconds>=state.MismatchGraceMinutes*60)return "OUTSIDE THIS BLOCK  ·  "+mismatchActivity+" does not match "+block.Activity+"."; return "ACTIVE BLOCK  ·  "+block.Activity+"  ·  ends "+DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(block.End)).ToString("h:mm tt"); } if(ExtraRemaining>0)return "EXTRA TIME  ·  "+(string.IsNullOrWhiteSpace(day.ActiveReason)?"Use this time intentionally.":day.ActiveReason); DateTime? next=NextBlockStart; return next==null?"NO MORE BLOCKS THIS WEEK":"NEXT BLOCK  ·  "+next.Value.ToString("ddd h:mm tt"); }
+        if(UsingAdvancedPlan) { AdvancedBlock block=ActiveBlock; if(block!=null) { if(mismatchSeconds>=state.MismatchGraceMinutes*60)return "OUTSIDE THIS BLOCK  ·  "+mismatchActivity+" does not match "+block.Activity+"."; return "ACTIVE BLOCK  ·  "+block.Activity+(UsingHybridPlan?"  ·  "+FormatDuration(CurrentRemaining)+" daily time left":"")+"  ·  ends "+DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(block.End)).ToString("h:mm tt"); } if(!UsingHybridPlan && ExtraRemaining>0)return "EXTRA TIME  ·  "+(string.IsNullOrWhiteSpace(day.ActiveReason)?"Use this time intentionally.":day.ActiveReason); DateTime? next=NextBlockStart; return next==null?"NO MORE BLOCKS THIS WEEK":"NEXT BLOCK  ·  "+next.Value.ToString("ddd h:mm tt"); }
         return "AUTO TRACKING  ·  Unlocked time counts. Lock with Win+L when you step away.";
     }
     void RefreshView() {
         double used=CurrentUsed, left=UsingAdvancedPlan?CurrentRemaining:Budget-used;
         remaining.Text=!HasPlan ? "Let's plan this week" : left>=0 ? FormatDuration(left)+" remaining" : FormatDuration(-left)+" beyond your plan";
-        detail.Text=FormatDuration(used)+(UsingAdvancedPlan?(ActiveBlock==null?" extra time used":" used in this block"):" used")+(!HasPlan?"  /  No plan saved for this week": "  /  "+FormatDuration(Budget)+" planned")+(day.Extra>0 ? "  (includes "+FormatDuration(day.Extra*60)+" extra)" : "");
+        detail.Text=FormatDuration(used)+(UsingHybridPlan?" used today":UsingAdvancedPlan?(ActiveBlock==null?" extra time used":" used in this block"):" used")+(!HasPlan?"  /  No plan saved for this week": "  /  "+FormatDuration(Budget)+" planned")+(day.Extra>0 ? "  (includes "+FormatDuration(day.Extra*60)+" extra)" : "");
         progress.Value=!HasPlan?0:Budget<=0?1000:(int)Math.Max(0,Math.Min(1000,used/Budget*1000));
         status.Text=CurrentStatusText();
         rest.Enabled=!Breaking && !state.BreakWaiting && !state.DailyShutdown; extra.Enabled=!Breaking && !state.BreakWaiting && HasPlan;
@@ -1010,9 +1024,9 @@ public class ScreenTime : Form {
         if(cornerBar==null || cornerBar.IsDisposed)return;
         double used=CurrentUsed;
         double periodic=Math.Max(0,state.Interval*60-day.SinceReminder), closing=Math.Max(0,Budget-used);
-        AdvancedBlock active=ActiveBlock; if(UsingAdvancedPlan && active!=null)closing=Math.Max(0,(DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(active.End))-DateTime.Now).TotalSeconds);
+        AdvancedBlock active=ActiveBlock; if(UsingAdvancedPlan && active!=null) { double blockClosing=Math.Max(0,(DateTime.Today.AddMinutes(AdvancedBlockRules.Minutes(active.End))-DateTime.Now).TotalSeconds); closing=UsingHybridPlan?Math.Min(closing,blockClosing):blockClosing; }
         bool closingSoon=HasPlan && closing<=periodic; double next; string timerTitle;
-        if(state.DailyShutdown) { DateTime? nextBlock=UsingAdvancedPlan && !state.ManualShutdown?NextBlockStart:null; next=nextBlock==null?0:(nextBlock.Value-DateTime.Now).TotalSeconds; timerTitle=nextBlock==null?"DAY COMPLETE":"NEXT BLOCK"; }
+        if(state.DailyShutdown) { DateTime? nextBlock=UsingAdvancedPlan && !state.ManualShutdown && (!UsingHybridPlan || CurrentRemaining>0)?NextBlockStart:null; next=nextBlock==null?0:(nextBlock.Value-DateTime.Now).TotalSeconds; timerTitle=nextBlock==null?"DAY COMPLETE":"NEXT BLOCK"; }
         else if(Breaking) { next=(state.BreakUntil-DateTime.UtcNow).TotalSeconds; timerTitle="BREAK LEFT"; }
         else if(state.BreakWaiting || state.BreakOffscreen) { next=0; timerTitle="PAUSED"; }
         else if(cleanupActive) { next=CleanupSecondsLeft(); timerTitle=cleanupClosesPlan?"CLOSES IN":"BREAK IN"; }

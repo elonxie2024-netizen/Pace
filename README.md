@@ -12,6 +12,7 @@ Pace is a small Windows desktop app for keeping a personal, trust-based screen-t
 - Supports dated weekly plans with configurable reminder and break timing
 - Can automatically copy the immediately preceding week's simple limits or advanced blocks when a new week begins, without overwriting plans made ahead of time
 - Includes visual advanced plans with draggable blocks for named activities and times
+- Supports combined Limits + blocks plans, where an allowed block must be active and the overarching daily allowance must still have time remaining
 - Lets advanced blocks name the apps or visible browser-tab words that fit, then gives a calm course-check warning and reports matched versus outside-block time
 - Keeps a local heartbeat and records starts, stops, locks, sleep, wake, and any interval when Pace was not tracking
 - Makes every user-facing timer configurable in hours and minutes from one Settings tab
