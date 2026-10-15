@@ -134,16 +134,24 @@ try {
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Stopped'; Start=[datetime]::Today.AddHours(4).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Gap'; Start=[datetime]::Today.AddHours(4).ToString('o'); End=[datetime]::Today.AddHours(5).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=[datetime]::Today.AddHours(5).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='BreakStarted'; Start=[datetime]::Today.AddHours(5.5).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Locked'; Start=[datetime]::Today.AddHours(5.67).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Unlocked'; Start=[datetime]::Today.AddHours(5.83).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='BreakEnded'; Start=[datetime]::Today.AddHours(6).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='OffscreenStarted'; Start=[datetime]::Today.AddHours(6.25).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='OffscreenEnded'; Start=[datetime]::Today.AddHours(6.75).ToString('o') }))
     $timelineModel = New-Object TrackingHealthTimeline
     $timelineModel.SetData($timelineRecords,$timelineNow,$true,$false,$false)
-    Assert ([Math]::Abs($timelineModel.TrackedSeconds-12600) -lt 1 -and [Math]::Abs($timelineModel.ManualPausedSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.PausedSeconds-3600) -lt 1 -and [Math]::Abs($timelineModel.GapSeconds-3600) -lt 1) 'Tracking timeline must distinguish tracked, manually paused, locked or asleep, and untracked intervals'
+    Assert ([Math]::Abs($timelineModel.TrackedSeconds-9000) -lt 1 -and [Math]::Abs($timelineModel.BreakSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.OffscreenSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.ManualPausedSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.PausedSeconds-3600) -lt 1 -and [Math]::Abs($timelineModel.GapSeconds-3600) -lt 1) 'Tracking timeline must distinguish tracked, break, offscreen activity, manually paused, locked or asleep, and untracked intervals'
     Assert ($timelineModel.RangeStart -eq [datetime]::Today.AddHours(1) -and $timelineModel.RangeEnd -eq $timelineNow) 'The tracking bar must begin at the first recorded computer activity instead of midnight'
     $fullTimelineSpan=($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds; $timelineModel.ZoomIn()
     Assert ($timelineModel.ZoomLevel -eq 2 -and ($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds -lt $fullTimelineSpan) 'Tracking health must zoom into a shorter time window'
     $timelineModel.ZoomOut(); Assert ($timelineModel.ZoomLevel -eq 1 -and [Math]::Abs(($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds-$fullTimelineSpan) -lt 1) 'Zooming out must restore the complete daily timeline'
     $manualPauseColor = $timelineModel.GetType().GetField('manualPaused',$flags).GetValue($timelineModel)
+    $breakColor = $timelineModel.GetType().GetField('breakColor',$flags).GetValue($timelineModel)
+    $offscreenColor = $timelineModel.GetType().GetField('offscreen',$flags).GetValue($timelineModel)
     $gapColor = $timelineModel.GetType().GetField('gap',$flags).GetValue($timelineModel)
-    Assert ($manualPauseColor -ne $gapColor -and $timelineModel.AccessibleDescription -like '*tracked*manually paused*locked or asleep*not tracked*') 'Manual pauses must use a distinct color and accessible label instead of appearing as tracking gaps'
+    Assert ($breakColor -ne $offscreenColor -and $breakColor -ne $manualPauseColor -and $offscreenColor -ne $gapColor -and $timelineModel.AccessibleDescription -like '*tracked*break*offscreen activity*manually paused*locked or asleep*not tracked*') 'Breaks and offscreen activity must have distinct colors and accessible labels instead of appearing as lock, sleep, or tracking gaps'
     $healthTimeline = Field 'trackingTimeline'
     Assert ($healthTimeline.AccessibleRole -eq [Windows.Forms.AccessibleRole]::Graphic -and $healthTimeline.Bottom -lt (Field 'trackingEvents').Top) 'Tracking timeline must fit above recent events without overlap'
     $timelineModel.Dispose()
@@ -321,6 +329,7 @@ try {
     Assert ($day.Used -eq 60) 'Locked time must not accrue'
     Assert ($day.SinceReminder -eq 60) 'Locked time must not advance next-break countdown'
     Call 'StartBreak'
+    Assert ($state.TrackingEvents[$state.TrackingEvents.Count-1].Kind -eq 'BreakStarted') 'Starting a break must record a dedicated break event'
     Assert ([Math]::Abs(($state.BreakUntil - [datetime]::UtcNow).TotalMinutes - $state.BreakMinutes) -lt 0.1) 'Starting break must use the custom break duration'
     Assert ($day.SinceReminder -eq 0 -and $corner.AccessibleDescription -like '*BREAK LEFT:*') 'Starting break must reset reminder interval and show break countdown'
     Elapsed 60 $false
@@ -361,7 +370,12 @@ try {
     Assert ($breakScreen.GetType().GetField('timerLabel',$breakFlags).GetValue($breakScreen).Text -eq '') 'Offscreen activity must stay timeless instead of restoring 00:00'
     Assert (-not $breakScreen.GetType().GetField('cancel',$breakFlags).GetValue($breakScreen).Visible) 'Offscreen activity must not duplicate Continue with Cancel'
     $app.GetType().GetMethod('ContinueBreak',$flags).Invoke($app,@())
+    Assert ($state.TrackingEvents[$state.TrackingEvents.Count-1].Kind -eq 'OffscreenEnded') 'Continuing from offscreen activity must close its tracking interval'
     $state.DailyShutdown = $false
+    Call 'StartBreak'
+    $app.GetType().GetMethod('OffscreenActivity',$flags).Invoke($app,@())
+    Assert ($state.TrackingEvents[$state.TrackingEvents.Count-2].Kind -eq 'BreakEnded' -and $state.TrackingEvents[$state.TrackingEvents.Count-1].Kind -eq 'OffscreenStarted') 'Switching from a break to offscreen activity must close the break and open a distinct offscreen interval'
+    $app.GetType().GetMethod('ContinueBreak',$flags).Invoke($app,@())
 
     $updateInactivity=$app.GetType().GetMethod('UpdateInactivity',$flags)
     $state.InactivityWarningMinutes=12; $state.InactivityOffscreenMinutes=4

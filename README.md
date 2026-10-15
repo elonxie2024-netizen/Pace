@@ -16,6 +16,7 @@ Pace is a small Windows desktop app for keeping a personal, trust-based screen-t
 - Lets advanced blocks name the apps or visible browser-tab words that fit, then gives a calm course-check warning and reports matched versus outside-block time
 - Keeps a local heartbeat and records starts, stops, locks, sleep, wake, and any interval when Pace was not tracking
 - Lets Tracking Health move between days and zoom or drag each day's timeline, beginning at that day's first recorded computer activity
+- Separates regular breaks, offscreen activity, manual pauses, Windows lock or sleep, and tracking gaps in Tracking Health
 - Makes every user-facing timer configurable in hours and minutes from one Settings tab
 - Includes a persistent dark mode for the dashboard, planning tools, charts, reminders, and corner bar
 - Offers a built-in sound dropdown with gentle notes, rain, ocean, birds, kalimba, and sand textures, plus preview and import controls for custom WAV, MP3, or WMA alerts up to 10 seconds
@@ -64,7 +65,7 @@ The corner bar's minus button minimizes it as a normal taskbar app. Restore it f
 
 The crossed-bell button turns do not disturb on or off. While it is on, Pace keeps tracking time and still enforces the final day or block limit, but suppresses periodic break prompts, automatic breaks, focus reminders, weekly-plan reminders, and alert sounds. You can still start a break manually.
 
-The **Tracking health** tab confirms that the heartbeat is current, checks whether launch at sign-in points to the running Pace installation, and visualizes today's tracked, manually paused, locked or sleeping, untracked, and unknown periods on a timeline. Manual pauses are blue, lock or sleep is amber, and unknown tracking gaps are red. Recent events remain listed below it. If Pace was closed or stopped unexpectedly, the next launch records the unknown interval in both **Tracking health** and **Time & reasons**. Time in a tracking gap is identified as unknown and is never silently added to screen usage.
+The **Tracking health** tab confirms that the heartbeat is current, checks whether launch at sign-in points to the running Pace installation, and visualizes tracked time, breaks, offscreen activity, manual pauses, Windows lock or sleep, and unknown gaps as separate timeline states. Recent events remain listed below it. If Pace was closed or stopped unexpectedly, the next launch records the unknown interval in both **Tracking health** and **Time & reasons**. Time in a tracking gap is identified as unknown and is never silently added to screen usage.
 
 ## Building the Windows installer
 

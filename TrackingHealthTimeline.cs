@@ -14,6 +14,8 @@ public sealed class TrackingHealthTimeline : Control {
     readonly Color tracked=Color.FromArgb(81,145,118);
     readonly Color locked=Color.FromArgb(213,170,92);
     readonly Color manualPaused=Color.FromArgb(104,139,178);
+    readonly Color breakColor=Color.FromArgb(108,155,180);
+    readonly Color offscreen=Color.FromArgb(139,119,174);
     readonly Color gap=Color.FromArgb(194,105,91);
     Color Empty { get { return PaceTheme.Dark?Color.FromArgb(54,65,59):Color.FromArgb(229,232,226); } }
     DateTime day=DateTime.Today,now=DateTime.Now;
@@ -30,6 +32,8 @@ public sealed class TrackingHealthTimeline : Control {
     public double TrackedSeconds { get; private set; }
     public double PausedSeconds { get; private set; }
     public double ManualPausedSeconds { get; private set; }
+    public double BreakSeconds { get; private set; }
+    public double OffscreenSeconds { get; private set; }
     public double GapSeconds { get; private set; }
 
     public TrackingHealthTimeline() {
@@ -45,14 +49,19 @@ public sealed class TrackingHealthTimeline : Control {
 
     static bool Parse(string value,out DateTime result) { return DateTime.TryParse(value,out result); }
     static bool PointEvent(TrackingEventRecord item) { return item!=null && item.Kind!="Gap"; }
-    static void ApplyEvent(TrackingEventRecord item,ref bool running,ref bool systemPaused,ref bool userPaused) {
+    static void ApplyEvent(TrackingEventRecord item,ref bool running,ref bool systemPaused,ref bool userPaused,ref bool onBreak,ref bool inOffscreen) {
         if(item.Kind=="Started") { running=true; systemPaused=false; userPaused=false; }
         else if(item.Kind=="Stopped") { running=false; systemPaused=false; userPaused=false; }
         else if(item.Kind=="Locked" || item.Kind=="Sleep") { if(running)systemPaused=true; }
         else if(item.Kind=="Unlocked" || item.Kind=="Wake") { if(running)systemPaused=false; }
         else if(item.Kind=="Paused") { if(running)userPaused=true; }
         else if(item.Kind=="Resumed") { if(running)userPaused=false; }
+        else if(item.Kind=="BreakStarted") { onBreak=true; inOffscreen=false; }
+        else if(item.Kind=="BreakEnded")onBreak=false;
+        else if(item.Kind=="OffscreenStarted") { inOffscreen=true; onBreak=false; }
+        else if(item.Kind=="OffscreenEnded")inOffscreen=false;
     }
+    static string SliceKind(bool systemPaused,bool userPaused,bool onBreak,bool inOffscreen) { return inOffscreen?"Offscreen":onBreak?"Break":userPaused?"ManualPaused":systemPaused?"Paused":"Tracked"; }
     void AddSlice(DateTime start,DateTime end,string kind) {
         if(end<=start)return;
         slices.Add(new Slice { Start=start,End=end,Kind=kind });
@@ -60,6 +69,8 @@ public sealed class TrackingHealthTimeline : Control {
         if(kind=="Tracked")TrackedSeconds+=seconds;
         else if(kind=="Paused")PausedSeconds+=seconds;
         else if(kind=="ManualPaused")ManualPausedSeconds+=seconds;
+        else if(kind=="Break")BreakSeconds+=seconds;
+        else if(kind=="Offscreen")OffscreenSeconds+=seconds;
         else if(kind=="Gap")GapSeconds+=seconds;
     }
     static string Duration(double seconds) {
@@ -73,7 +84,7 @@ public sealed class TrackingHealthTimeline : Control {
     public void SetData(IEnumerable<TrackingEventRecord> records,DateTime current,bool trackingOpen,bool currentlySystemPaused,bool currentlyUserPaused) {
         bool sameDay=day==current.Date; DateTime oldFullStart=fullStart,oldFullEnd=fullEnd,oldViewStart=viewStart,oldViewEnd=viewEnd;
         now=current; day=current.Date; DateTime endOfDay=day.AddDays(1),visibleEnd=current<endOfDay?current:endOfDay;
-        slices.Clear(); TrackedSeconds=0; PausedSeconds=0; ManualPausedSeconds=0; GapSeconds=0;
+        slices.Clear(); TrackedSeconds=0; PausedSeconds=0; ManualPausedSeconds=0; BreakSeconds=0; OffscreenSeconds=0; GapSeconds=0;
         List<KeyValuePair<DateTime,TrackingEventRecord>> points=new List<KeyValuePair<DateTime,TrackingEventRecord>>();
         List<Slice> gaps=new List<Slice>();
         if(records!=null)foreach(TrackingEventRecord item in records) {
@@ -85,17 +96,17 @@ public sealed class TrackingHealthTimeline : Control {
             } else if(PointEvent(item) && start<=visibleEnd)points.Add(new KeyValuePair<DateTime,TrackingEventRecord>(start,item));
         }
         points.Sort(delegate(KeyValuePair<DateTime,TrackingEventRecord> a,KeyValuePair<DateTime,TrackingEventRecord> b) { return a.Key.CompareTo(b.Key); });
-        bool running=false,systemPaused=false,userPaused=false,hasState=false;
-        foreach(KeyValuePair<DateTime,TrackingEventRecord> point in points)if(point.Key<day) { ApplyEvent(point.Value,ref running,ref systemPaused,ref userPaused); hasState=true; }
+        bool running=false,systemPaused=false,userPaused=false,onBreak=false,inOffscreen=false,hasState=false;
+        foreach(KeyValuePair<DateTime,TrackingEventRecord> point in points)if(point.Key<day) { ApplyEvent(point.Value,ref running,ref systemPaused,ref userPaused,ref onBreak,ref inOffscreen); hasState=true; }
         DateTime cursor=day;
         foreach(KeyValuePair<DateTime,TrackingEventRecord> point in points) {
             if(point.Key<day)continue;
             DateTime at=point.Key>visibleEnd?visibleEnd:point.Key;
-            if(hasState && running)AddSlice(cursor,at,userPaused?"ManualPaused":systemPaused?"Paused":"Tracked");
-            cursor=at; ApplyEvent(point.Value,ref running,ref systemPaused,ref userPaused); hasState=true;
+            if(hasState && running)AddSlice(cursor,at,SliceKind(systemPaused,userPaused,onBreak,inOffscreen));
+            cursor=at; ApplyEvent(point.Value,ref running,ref systemPaused,ref userPaused,ref onBreak,ref inOffscreen); hasState=true;
             if(point.Key>=visibleEnd)break;
         }
-        if(hasState && running)AddSlice(cursor,visibleEnd,userPaused?"ManualPaused":systemPaused?"Paused":"Tracked");
+        if(hasState && running)AddSlice(cursor,visibleEnd,SliceKind(systemPaused,userPaused,onBreak,inOffscreen));
         else if(!hasState && trackingOpen)AddSlice(day,visibleEnd,currentlyUserPaused?"ManualPaused":currentlySystemPaused?"Paused":"Tracked");
 
         gaps.Sort(delegate(Slice a,Slice b) { return a.Start.CompareTo(b.Start); });
@@ -120,7 +131,7 @@ public sealed class TrackingHealthTimeline : Control {
         }
         string dayName=day==DateTime.Today?"Today":day.ToString("ddd, MMM d");
         AccessibleName=dayName+" tracking timeline";
-        AccessibleDescription=dayName+": "+Duration(TrackedSeconds)+" tracked, "+Duration(ManualPausedSeconds)+" manually paused, "+Duration(PausedSeconds)+" locked or asleep, "+Duration(GapSeconds)+" not tracked. Timeline begins at "+fullStart.ToString("h:mm tt")+". Zoom "+ZoomLevel+" times.";
+        AccessibleDescription=dayName+": "+Duration(TrackedSeconds)+" tracked, "+Duration(BreakSeconds)+" break, "+Duration(OffscreenSeconds)+" offscreen activity, "+Duration(ManualPausedSeconds)+" manually paused, "+Duration(PausedSeconds)+" locked or asleep, "+Duration(GapSeconds)+" not tracked. Timeline begins at "+fullStart.ToString("h:mm tt")+". Zoom "+ZoomLevel+" times.";
         Invalidate();
     }
 
@@ -171,7 +182,7 @@ public sealed class TrackingHealthTimeline : Control {
         foreach(Slice slice in slices)if(slice.Kind!="Gap") {
             int left=TimeX(slice.Start,lane),right=TimeX(slice.End,lane);
             Rectangle block=new Rectangle(left,lane.Top,Math.Max(2,right-left),lane.Height);
-            Color color=slice.Kind=="ManualPaused"?manualPaused:slice.Kind=="Paused"?locked:tracked;
+            Color color=slice.Kind=="Offscreen"?offscreen:slice.Kind=="Break"?breakColor:slice.Kind=="ManualPaused"?manualPaused:slice.Kind=="Paused"?locked:tracked;
             using(Brush brush=new SolidBrush(color))e.Graphics.FillRectangle(brush,block);
         }
         foreach(Slice slice in slices)if(slice.Kind=="Gap") {
@@ -191,9 +202,11 @@ public sealed class TrackingHealthTimeline : Control {
         }
         int legendY=Math.Max(63,ClientSize.Height-18);
         DrawLegend(e.Graphics,"Tracked",tracked,10,legendY);
-        DrawLegend(e.Graphics,"Paused",manualPaused,91,legendY);
-        DrawLegend(e.Graphics,"Locked / sleep",locked,166,legendY);
-        DrawLegend(e.Graphics,"Not tracked",gap,286,legendY);
-        DrawLegend(e.Graphics,"No timeline data",Empty,385,legendY);
+        DrawLegend(e.Graphics,"Paused",manualPaused,88,legendY);
+        DrawLegend(e.Graphics,"Break",breakColor,160,legendY);
+        DrawLegend(e.Graphics,"Offscreen activity",offscreen,222,legendY);
+        DrawLegend(e.Graphics,"Locked / sleep",locked,350,legendY);
+        DrawLegend(e.Graphics,"Not tracked",gap,462,legendY);
+        DrawLegend(e.Graphics,"No timeline data",Empty,565,legendY);
     }
 }
