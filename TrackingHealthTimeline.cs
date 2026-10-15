@@ -17,17 +17,29 @@ public sealed class TrackingHealthTimeline : Control {
     readonly Color gap=Color.FromArgb(194,105,91);
     Color Empty { get { return PaceTheme.Dark?Color.FromArgb(54,65,59):Color.FromArgb(229,232,226); } }
     DateTime day=DateTime.Today,now=DateTime.Now;
+    DateTime fullStart=DateTime.Today,fullEnd=DateTime.Now,viewStart=DateTime.Today,viewEnd=DateTime.Now;
+    bool panning;
+    int panStartX;
+    DateTime panStartViewStart,panStartViewEnd;
+    public event EventHandler ViewChanged;
+    public int ZoomLevel { get; private set; }
+    public DateTime RangeStart { get { return fullStart; } }
+    public DateTime RangeEnd { get { return fullEnd; } }
+    public DateTime VisibleStart { get { return viewStart; } }
+    public DateTime VisibleEnd { get { return viewEnd; } }
     public double TrackedSeconds { get; private set; }
     public double PausedSeconds { get; private set; }
     public double ManualPausedSeconds { get; private set; }
     public double GapSeconds { get; private set; }
 
     public TrackingHealthTimeline() {
+        ZoomLevel=1;
         DoubleBuffered=true;
         BackColor=PaceTheme.Surface;
         Font=new Font("Segoe UI",8);
         AccessibleName="Today's tracking timeline";
         AccessibleRole=AccessibleRole.Graphic;
+        Cursor=Cursors.Hand;
     }
     public void SetDarkMode(bool dark) { BackColor=PaceTheme.Surface; Invalidate(); }
 
@@ -59,6 +71,7 @@ public sealed class TrackingHealthTimeline : Control {
     }
 
     public void SetData(IEnumerable<TrackingEventRecord> records,DateTime current,bool trackingOpen,bool currentlySystemPaused,bool currentlyUserPaused) {
+        bool sameDay=day==current.Date; DateTime oldFullStart=fullStart,oldFullEnd=fullEnd,oldViewStart=viewStart,oldViewEnd=viewEnd;
         now=current; day=current.Date; DateTime endOfDay=day.AddDays(1),visibleEnd=current<endOfDay?current:endOfDay;
         slices.Clear(); TrackedSeconds=0; PausedSeconds=0; ManualPausedSeconds=0; GapSeconds=0;
         List<KeyValuePair<DateTime,TrackingEventRecord>> points=new List<KeyValuePair<DateTime,TrackingEventRecord>>();
@@ -93,14 +106,43 @@ public sealed class TrackingHealthTimeline : Control {
             else { AddSlice(gapStart,gapEnd,"Gap"); gapStart=item.Start; gapEnd=item.End; }
         }
         if(gapStart!=DateTime.MinValue)AddSlice(gapStart,gapEnd,"Gap");
-        AccessibleDescription="Today: "+Duration(TrackedSeconds)+" tracked, "+Duration(ManualPausedSeconds)+" manually paused, "+Duration(PausedSeconds)+" locked or asleep, "+Duration(GapSeconds)+" not tracked.";
+        DateTime first=DateTime.MaxValue;
+        foreach(KeyValuePair<DateTime,TrackingEventRecord> point in points)if(point.Key>=day && point.Key<visibleEnd && point.Key<first)first=point.Key;
+        if(first==DateTime.MaxValue)foreach(Slice item in gaps)if(item.Start>=day && item.Start<visibleEnd && item.Start<first)first=item.Start;
+        if(first==DateTime.MaxValue)foreach(Slice item in slices)if(item.Start<first)first=item.Start;
+        fullEnd=visibleEnd; fullStart=first==DateTime.MaxValue?day:first;
+        if(fullEnd<=fullStart)fullStart=fullEnd.AddMinutes(-1)>day?fullEnd.AddMinutes(-1):day;
+        if(!sameDay)ZoomLevel=1;
+        if(ZoomLevel<=1 || oldFullEnd<=oldFullStart) { ZoomLevel=1; viewStart=fullStart; viewEnd=fullEnd; }
+        else {
+            double oldCenter=((oldViewStart-oldFullStart).TotalSeconds+(oldViewEnd-oldFullStart).TotalSeconds)/2.0/Math.Max(1,(oldFullEnd-oldFullStart).TotalSeconds);
+            SetView(ZoomLevel,Math.Max(0,Math.Min(1,oldCenter)),false);
+        }
+        string dayName=day==DateTime.Today?"Today":day.ToString("ddd, MMM d");
+        AccessibleName=dayName+" tracking timeline";
+        AccessibleDescription=dayName+": "+Duration(TrackedSeconds)+" tracked, "+Duration(ManualPausedSeconds)+" manually paused, "+Duration(PausedSeconds)+" locked or asleep, "+Duration(GapSeconds)+" not tracked. Timeline begins at "+fullStart.ToString("h:mm tt")+". Zoom "+ZoomLevel+" times.";
         Invalidate();
     }
 
     int TimeX(DateTime value,Rectangle lane) {
-        double fraction=(value-day).TotalSeconds/TimeSpan.FromDays(1).TotalSeconds;
+        double fraction=(value-viewStart).TotalSeconds/Math.Max(1,(viewEnd-viewStart).TotalSeconds);
         return lane.Left+(int)Math.Round(Math.Max(0,Math.Min(1,fraction))*lane.Width);
     }
+    void SetView(int zoom,double centerFraction,bool notify) {
+        ZoomLevel=Math.Max(1,Math.Min(8,zoom)); double total=Math.Max(1,(fullEnd-fullStart).TotalSeconds),span=total/ZoomLevel;
+        DateTime center=fullStart.AddSeconds(total*Math.Max(0,Math.Min(1,centerFraction)));
+        viewStart=center.AddSeconds(-span/2); viewEnd=viewStart.AddSeconds(span);
+        if(viewStart<fullStart) { viewStart=fullStart; viewEnd=viewStart.AddSeconds(span); }
+        if(viewEnd>fullEnd) { viewEnd=fullEnd; viewStart=viewEnd.AddSeconds(-span); }
+        if(ZoomLevel==1) { viewStart=fullStart; viewEnd=fullEnd; }
+        if(notify && ViewChanged!=null)ViewChanged(this,EventArgs.Empty); Invalidate();
+    }
+    public void ZoomIn() { double center=(viewStart.AddTicks((viewEnd-viewStart).Ticks/2)-fullStart).TotalSeconds/Math.Max(1,(fullEnd-fullStart).TotalSeconds); SetView(ZoomLevel*2,center,true); }
+    public void ZoomOut() { double center=(viewStart.AddTicks((viewEnd-viewStart).Ticks/2)-fullStart).TotalSeconds/Math.Max(1,(fullEnd-fullStart).TotalSeconds); SetView(ZoomLevel/2,center,true); }
+    protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); Rectangle lane=new Rectangle(10,25,Math.Max(20,ClientSize.Width-20),18); double fraction=Math.Max(0,Math.Min(1,(e.X-lane.Left)/(double)Math.Max(1,lane.Width))); DateTime anchor=viewStart.AddSeconds((viewEnd-viewStart).TotalSeconds*fraction); int next=e.Delta>0?ZoomLevel*2:ZoomLevel/2; next=Math.Max(1,Math.Min(8,next)); double total=Math.Max(1,(fullEnd-fullStart).TotalSeconds),span=total/next; DateTime start=anchor.AddSeconds(-span*fraction); double center=(start.AddSeconds(span/2)-fullStart).TotalSeconds/total; SetView(next,center,true); }
+    protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); if(e.Button==MouseButtons.Left && ZoomLevel>1) { panning=true; panStartX=e.X; panStartViewStart=viewStart; panStartViewEnd=viewEnd; Capture=true; Cursor=Cursors.SizeWE; } }
+    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if(!panning)return; double shift=-(e.X-panStartX)/(double)Math.Max(1,ClientSize.Width)*(panStartViewEnd-panStartViewStart).TotalSeconds; DateTime start=panStartViewStart.AddSeconds(shift),end=panStartViewEnd.AddSeconds(shift); if(start<fullStart) { start=fullStart; end=start+(panStartViewEnd-panStartViewStart); } if(end>fullEnd) { end=fullEnd; start=end-(panStartViewEnd-panStartViewStart); } viewStart=start; viewEnd=end; if(ViewChanged!=null)ViewChanged(this,EventArgs.Empty); Invalidate(); }
+    protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); if(!panning)return; panning=false; Capture=false; Cursor=Cursors.Hand; }
     static GraphicsPath RoundPath(Rectangle rectangle,int radius) {
         GraphicsPath path=new GraphicsPath();
         int diameter=Math.Min(radius*2,Math.Min(rectangle.Width,rectangle.Height));
@@ -121,7 +163,7 @@ public sealed class TrackingHealthTimeline : Control {
     protected override void OnPaint(PaintEventArgs e) {
         base.OnPaint(e); e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;
         Color ink=PaceTheme.Text,muted=PaceTheme.Muted;
-        using(Font heading=new Font("Segoe UI Semibold",9))TextRenderer.DrawText(e.Graphics,"TODAY'S TRACKING",heading,new Point(10,3),ink,TextFormatFlags.NoPadding);
+        using(Font heading=new Font("Segoe UI Semibold",9))TextRenderer.DrawText(e.Graphics,day==DateTime.Today?"TODAY'S TRACKING":day.ToString("ddd, MMM d").ToUpperInvariant(),heading,new Point(10,3),ink,TextFormatFlags.NoPadding);
         TextRenderer.DrawText(e.Graphics,Duration(TrackedSeconds)+" tracked",Font,new Rectangle(150,3,ClientSize.Width-160,18),muted,TextFormatFlags.Right|TextFormatFlags.NoPadding);
         Rectangle lane=new Rectangle(10,25,Math.Max(20,ClientSize.Width-20),18);
         using(Brush brush=new SolidBrush(Empty))FillRound(e.Graphics,brush,lane,8);
@@ -138,14 +180,14 @@ public sealed class TrackingHealthTimeline : Control {
             using(Brush brush=new SolidBrush(gap))e.Graphics.FillRectangle(brush,block);
         }
         e.Graphics.Restore(laneState);
-        if(now>=day && now<day.AddDays(1)) {
+        if(now>=viewStart && now<=viewEnd && day==DateTime.Today) {
             int currentX=TimeX(now,lane); using(Pen pen=new Pen(ink,2))e.Graphics.DrawLine(pen,currentX,lane.Top-3,currentX,lane.Bottom+3);
         }
-        string[] labels={"12a","6a","12p","6p","12a"};
-        for(int i=0;i<labels.Length;i++) {
-            int x=lane.Left+(int)Math.Round(lane.Width*i/4.0),width=32;
-            if(i==0)x=lane.Left; else if(i==labels.Length-1)x=lane.Right-width; else x-=width/2;
-            TextRenderer.DrawText(e.Graphics,labels[i],Font,new Rectangle(x,47,width,15),muted,TextFormatFlags.HorizontalCenter|TextFormatFlags.NoPadding);
+        for(int i=0;i<5;i++) {
+            DateTime labelTime=viewStart.AddTicks((long)((viewEnd-viewStart).Ticks*i/4.0)); string label=labelTime.ToString("h:mmtt").ToLowerInvariant();
+            int x=lane.Left+(int)Math.Round(lane.Width*i/4.0),width=52;
+            if(i==0)x=lane.Left; else if(i==4)x=lane.Right-width; else x-=width/2;
+            TextRenderer.DrawText(e.Graphics,label,Font,new Rectangle(x,47,width,15),muted,TextFormatFlags.HorizontalCenter|TextFormatFlags.NoPadding);
         }
         int legendY=Math.Max(63,ClientSize.Height-18);
         DrawLegend(e.Graphics,"Tracked",tracked,10,legendY);

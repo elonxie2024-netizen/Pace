@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.21.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.21.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.22.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.22.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -173,7 +173,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.21";
+    const string PaceVersion="0.2.22";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -235,10 +235,11 @@ public class ScreenTime : Form {
     ActivityChart activityChart;
     ComboBox activityRange;
     Label activitySummary;
-    Label trackingHealthTitle,trackingHealthDetail,trackingLaunchStatus,settingsStatus,soundStatus;
+    Label trackingHealthTitle,trackingHealthDetail,trackingLaunchStatus,trackingDayLabel,trackingZoomLabel,settingsStatus,soundStatus;
     ListBox trackingEvents;
     TrackingHealthTimeline trackingTimeline;
-    Button enableStartup;
+    Button enableStartup,trackingPreviousDay,trackingNextDay,trackingZoomOut,trackingZoomIn;
+    DateTime trackingHealthDate=DateTime.Today;
     string foregroundName="";
     double foregroundSince;
     Form focusToast;
@@ -332,11 +333,18 @@ public class ScreenTime : Form {
         soundStatus=AddLabel(alerts,"",18,242,300,20,9); soundStatus.ForeColor=PaceTheme.Muted;
         settingsStatus=AddLabel(alerts,"",330,242,478,20,9); settingsStatus.ForeColor=PaceTheme.Muted; UpdateSoundControls();
         TabPage health=new TabPage("Tracking health") { BackColor=Color.FromArgb(252,251,247) }; tabs.TabPages.Add(health);
-        trackingHealthTitle=AddLabel(health,"● Tracking now",18,16,575,30,15); trackingHealthTitle.Font=new Font("Segoe UI Semibold",15); trackingHealthTitle.ForeColor=green;
+        trackingHealthTitle=AddLabel(health,"● Tracking now",18,16,350,30,15); trackingHealthTitle.Font=new Font("Segoe UI Semibold",15); trackingHealthTitle.ForeColor=green;
+        trackingPreviousDay=ButtonAt(health,"←",390,12,38,34,delegate { ChangeTrackingHealthDay(-1); }); trackingPreviousDay.AccessibleName="Previous tracking day";
+        trackingDayLabel=AddLabel(health,"Today",434,17,130,24,10); trackingDayLabel.TextAlign=ContentAlignment.MiddleCenter; trackingDayLabel.Font=new Font("Segoe UI Semibold",10);
+        trackingNextDay=ButtonAt(health,"→",570,12,38,34,delegate { ChangeTrackingHealthDay(1); }); trackingNextDay.AccessibleName="Next tracking day";
+        trackingZoomOut=ButtonAt(health,"−",620,12,38,34,delegate { trackingTimeline.ZoomOut(); }); trackingZoomOut.AccessibleName="Zoom tracking timeline out";
+        trackingZoomLabel=AddLabel(health,"1x",664,17,58,24,10); trackingZoomLabel.TextAlign=ContentAlignment.MiddleCenter;
+        trackingZoomIn=ButtonAt(health,"+",728,12,38,34,delegate { trackingTimeline.ZoomIn(); }); trackingZoomIn.AccessibleName="Zoom tracking timeline in";
         trackingHealthDetail=AddLabel(health,"",18,49,575,42,10); trackingHealthDetail.ForeColor=Color.FromArgb(76,100,91);
         trackingLaunchStatus=AddLabel(health,"",18,96,575,28,10); trackingLaunchStatus.ForeColor=Color.FromArgb(91,108,100);
-        enableStartup=ButtonAt(health,"Turn on launch at sign-in",610,20,198,38,delegate { if(startupItem!=null)startupItem.Checked=true; else SetStartWithWindows(true); RefreshTrackingHealth(); });
+        enableStartup=ButtonAt(health,"Turn on launch at sign-in",610,62,198,38,delegate { if(startupItem!=null)startupItem.Checked=true; else SetStartWithWindows(true); RefreshTrackingHealth(); });
         trackingTimeline=new TrackingHealthTimeline { Location=new Point(18,120),Size=new Size(790,88) }; health.Controls.Add(trackingTimeline);
+        trackingTimeline.ViewChanged+=delegate { UpdateTrackingZoomControls(); };
         trackingEvents=new ListBox { Location=new Point(18,214),Size=new Size(790,38),BorderStyle=BorderStyle.None,HorizontalScrollbar=true,BackColor=Color.FromArgb(252,251,247) }; health.Controls.Add(trackingEvents);
         cornerBar=new CornerBar(); cornerBar.Icon=Icon; if(state.CornerPositioned)cornerBar.RestoreSavedPosition(state.CornerX,state.CornerY); cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartManualShutdown(); }; cornerBar.PauseClicked+=delegate { TogglePause(); }; cornerBar.DoNotDisturbClicked+=delegate { ToggleDoNotDisturb(); }; cornerBar.UserPositionChanged+=delegate { state.CornerPositioned=true; state.CornerX=cornerBar.Left; state.CornerY=cornerBar.Top; Save(); }; cornerBar.PositionReset+=delegate { state.CornerPositioned=false; Save(); };
         appPauseOverlay=new PauseOverlay(); appPauseOverlay.ResumeRequested+=delegate { ResumeAll(); }; Controls.Add(appPauseOverlay);
@@ -677,6 +685,7 @@ public class ScreenTime : Form {
     void ResetForNewDay() {
         state.DailyShutdown=false; state.ManualShutdown=false; state.BreakWaiting=false; state.BreakOffscreen=false; state.InactivityOffscreen=false; state.BreakUntil=DateTime.MinValue;
         state.SessionDate=day.Date;
+        if(trackingHealthDate.Date==DateTime.Today.AddDays(-1))trackingHealthDate=DateTime.Today;
         EnsureCurrentWeekPlan();
         StopCleanup(); ClearBlockMismatch(); if(toast!=null && !toast.IsDisposed)toast.Close(); if(breakScreen!=null && !breakScreen.IsDisposed)breakScreen.Hide();
         last=watch.Elapsed.TotalSeconds; Save();
@@ -985,15 +994,20 @@ public class ScreenTime : Form {
         if(item.Kind=="Gap" && DateTime.TryParse(item.End,out end))return when+"–"+end.ToString(start.Date==end.Date?"h:mm tt":"ddd h:mm tt")+"    NOT TRACKED  "+FormatDuration((end-start).TotalSeconds)+"  ·  "+item.Detail;
         return when+"    "+item.Kind.ToUpperInvariant()+"  ·  "+item.Detail;
     }
+    DateTime EarliestTrackingDate() { DateTime earliest=DateTime.Today; bool found=false; foreach(TrackingEventRecord item in state.TrackingEvents) { DateTime start; if(item!=null && DateTime.TryParse(item.Start,out start) && (!found || start.Date<earliest)) { earliest=start.Date; found=true; } } return found?earliest:DateTime.Today; }
+    bool TrackingEventOnDay(TrackingEventRecord item,DateTime date) { DateTime start,end; if(item==null || !DateTime.TryParse(item.Start,out start))return false; if(item.Kind!="Gap")return start.Date==date.Date; return DateTime.TryParse(item.End,out end) && start<date.Date.AddDays(1) && end>date.Date; }
+    void ChangeTrackingHealthDay(int days) { DateTime earliest=EarliestTrackingDate(),target=trackingHealthDate.Date.AddDays(days); if(target<earliest)target=earliest; if(target>DateTime.Today)target=DateTime.Today; if(target==trackingHealthDate.Date)return; trackingHealthDate=target; RefreshTrackingHealth(); }
+    void UpdateTrackingZoomControls() { if(trackingTimeline==null)return; trackingZoomLabel.Text=trackingTimeline.ZoomLevel+"x"; trackingZoomOut.Enabled=trackingTimeline.ZoomLevel>1; trackingZoomIn.Enabled=trackingTimeline.ZoomLevel<8; }
     void RefreshTrackingHealth() {
-        if(trackingEvents==null)return; bool startup=StartsWithWindows(); double gapToday=TrackingGapSecondsForDay(DateTime.Now);
-        trackingHealthTitle.Text=saveFailed?"● Tracking, but not saving":"● Tracking now"; trackingHealthTitle.ForeColor=saveFailed?PaceTheme.Warning:green;
-        trackingHealthDetail.Text=(saveFailed?"Pace cannot save its heartbeat or usage. Check the Pace data-folder permissions.":"The heartbeat is current. Screen-time tracking is active.")+(gapToday>0?"  "+FormatDuration(gapToday)+" was not tracked today.":"  No tracking gaps today.");
+        if(trackingEvents==null)return; bool startup=StartsWithWindows(),today=trackingHealthDate.Date==DateTime.Today; DateTime selected=trackingHealthDate.Date,displayNow=today?DateTime.Now:selected.AddDays(1).AddTicks(-1); double gapForDay=TrackingGapSecondsForDay(selected);
+        trackingTimeline.SetData(state.TrackingEvents,displayNow,today && state.TrackingSessionOpen,today && (sessionLocked||sessionSuspended),today && paused);
+        trackingHealthTitle.Text=today?(saveFailed?"● Tracking, but not saving":"● Tracking now"):"Tracking history"; trackingHealthTitle.ForeColor=saveFailed && today?PaceTheme.Warning:green;
+        trackingHealthDetail.Text=today?(saveFailed?"Pace cannot save its heartbeat or usage. Check the Pace data-folder permissions.":"The heartbeat is current. Screen-time tracking is active.")+(gapForDay>0?"  "+FormatDuration(gapForDay)+" was not tracked today.":"  No tracking gaps today."):selected.ToString("dddd, MMM d")+": "+FormatDuration(trackingTimeline.TrackedSeconds)+" tracked, "+FormatDuration(trackingTimeline.ManualPausedSeconds+trackingTimeline.PausedSeconds)+" paused"+(gapForDay>0?", "+FormatDuration(gapForDay)+" not tracked.":", no tracking gaps.");
         trackingLaunchStatus.Text=startup?"Launch at sign-in is on, so Pace can begin with Windows.":"Launch at sign-in is off. Pace cannot track until you open it."; trackingLaunchStatus.ForeColor=startup?PaceTheme.Muted:PaceTheme.Warning; enableStartup.Visible=!startup;
-        trackingTimeline.SetData(state.TrackingEvents,DateTime.Now,state.TrackingSessionOpen,sessionLocked||sessionSuspended,paused);
+        trackingDayLabel.Text=today?"Today":selected.ToString("ddd, MMM d"); trackingPreviousDay.Enabled=selected>EarliestTrackingDate(); trackingNextDay.Enabled=!today; UpdateTrackingZoomControls();
         trackingEvents.BeginUpdate(); trackingEvents.Items.Clear();
-        int first=Math.Max(0,state.TrackingEvents.Count-100); for(int i=state.TrackingEvents.Count-1;i>=first;i--)trackingEvents.Items.Add(TrackingEventLine(state.TrackingEvents[i]));
-        if(trackingEvents.Items.Count==0)trackingEvents.Items.Add("No tracking events recorded yet."); trackingEvents.EndUpdate();
+        for(int i=state.TrackingEvents.Count-1;i>=0;i--)if(TrackingEventOnDay(state.TrackingEvents[i],selected))trackingEvents.Items.Add(TrackingEventLine(state.TrackingEvents[i]));
+        if(trackingEvents.Items.Count==0)trackingEvents.Items.Add("No tracking events recorded for this day."); trackingEvents.EndUpdate();
     }
     void RefreshHistory() {
         if(history==null)return; history.BeginUpdate(); history.Items.Clear();

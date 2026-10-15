@@ -15,6 +15,7 @@ Pace is a small Windows desktop app for keeping a personal, trust-based screen-t
 - Supports combined Limits + blocks plans, where an allowed block must be active and the overarching daily allowance must still have time remaining
 - Lets advanced blocks name the apps or visible browser-tab words that fit, then gives a calm course-check warning and reports matched versus outside-block time
 - Keeps a local heartbeat and records starts, stops, locks, sleep, wake, and any interval when Pace was not tracking
+- Lets Tracking Health move between days and zoom or drag each day's timeline, beginning at that day's first recorded computer activity
 - Makes every user-facing timer configurable in hours and minutes from one Settings tab
 - Includes a persistent dark mode for the dashboard, planning tools, charts, reminders, and corner bar
 - Offers a built-in sound dropdown with gentle notes, rain, ocean, birds, kalimba, and sand textures, plus preview and import controls for custom WAV, MP3, or WMA alerts up to 10 seconds
