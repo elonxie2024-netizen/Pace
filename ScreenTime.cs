@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.23.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.23.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.24.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.24.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -173,7 +173,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.23";
+    const string PaceVersion="0.2.24";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -343,7 +343,8 @@ public class ScreenTime : Form {
         trackingHealthDetail=AddLabel(health,"",18,49,575,42,10); trackingHealthDetail.ForeColor=Color.FromArgb(76,100,91);
         trackingLaunchStatus=AddLabel(health,"",18,96,575,28,10); trackingLaunchStatus.ForeColor=Color.FromArgb(91,108,100);
         enableStartup=ButtonAt(health,"Turn on launch at sign-in",610,62,198,38,delegate { if(startupItem!=null)startupItem.Checked=true; else SetStartWithWindows(true); RefreshTrackingHealth(); });
-        trackingTimeline=new TrackingHealthTimeline { Location=new Point(18,120),Size=new Size(790,88) }; health.Controls.Add(trackingTimeline);
+        Panel trackingViewport=new Panel { Location=new Point(18,120),Size=new Size(790,88),BackColor=PaceTheme.Surface }; health.Controls.Add(trackingViewport);
+        trackingTimeline=new TrackingHealthTimeline { Location=Point.Empty,Size=trackingViewport.ClientSize }; trackingViewport.Controls.Add(trackingTimeline);
         trackingTimeline.ViewChanged+=delegate { UpdateTrackingZoomControls(); };
         trackingEvents=new ListBox { Location=new Point(18,214),Size=new Size(790,38),BorderStyle=BorderStyle.None,HorizontalScrollbar=true,BackColor=Color.FromArgb(252,251,247) }; health.Controls.Add(trackingEvents);
         cornerBar=new CornerBar(); cornerBar.Icon=Icon; if(state.CornerPositioned)cornerBar.RestoreSavedPosition(state.CornerX,state.CornerY); cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartManualShutdown(); }; cornerBar.PauseClicked+=delegate { TogglePause(); }; cornerBar.DoNotDisturbClicked+=delegate { ToggleDoNotDisturb(); }; cornerBar.UserPositionChanged+=delegate { state.CornerPositioned=true; state.CornerX=cornerBar.Left; state.CornerY=cornerBar.Top; Save(); }; cornerBar.PositionReset+=delegate { state.CornerPositioned=false; Save(); };

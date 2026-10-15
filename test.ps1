@@ -144,16 +144,16 @@ try {
     $timelineModel.SetData($timelineRecords,$timelineNow,$true,$false,$false)
     Assert ([Math]::Abs($timelineModel.TrackedSeconds-9000) -lt 1 -and [Math]::Abs($timelineModel.BreakSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.OffscreenSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.ManualPausedSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.PausedSeconds-3600) -lt 1 -and [Math]::Abs($timelineModel.GapSeconds-3600) -lt 1) 'Tracking timeline must distinguish tracked, break, offscreen activity, manually paused, locked or asleep, and untracked intervals'
     Assert ($timelineModel.RangeStart -eq [datetime]::Today.AddHours(1) -and $timelineModel.RangeEnd -eq $timelineNow) 'The tracking bar must begin at the first recorded computer activity instead of midnight'
-    $fullTimelineSpan=($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds; $timelineModel.ZoomIn()
-    Assert ($timelineModel.ZoomLevel -eq 2 -and ($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds -lt $fullTimelineSpan) 'Tracking health must zoom into a shorter time window'
-    $timelineModel.ZoomOut(); Assert ($timelineModel.ZoomLevel -eq 1 -and [Math]::Abs(($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds-$fullTimelineSpan) -lt 1) 'Zooming out must restore the complete daily timeline'
+    $fullTimelineSpan=($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds; $fullTimelineWidth=$timelineModel.Width; $timelineModel.ZoomIn()
+    Assert ($timelineModel.ZoomLevel -eq 2 -and $timelineModel.Width -eq 2*$fullTimelineWidth -and ($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds -lt $fullTimelineSpan) 'Tracking health must enlarge the entire timeline and show a shorter time window when zoomed in'
+    $timelineModel.ZoomOut(); Assert ($timelineModel.ZoomLevel -eq 1 -and $timelineModel.Width -eq $fullTimelineWidth -and [Math]::Abs(($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds-$fullTimelineSpan) -lt 1) 'Zooming out must restore the complete daily timeline and its original width'
     $manualPauseColor = $timelineModel.GetType().GetField('manualPaused',$flags).GetValue($timelineModel)
     $breakColor = $timelineModel.GetType().GetField('breakColor',$flags).GetValue($timelineModel)
     $offscreenColor = $timelineModel.GetType().GetField('offscreen',$flags).GetValue($timelineModel)
     $gapColor = $timelineModel.GetType().GetField('gap',$flags).GetValue($timelineModel)
     Assert ($breakColor -ne $offscreenColor -and $breakColor -ne $manualPauseColor -and $offscreenColor -ne $gapColor -and $timelineModel.AccessibleDescription -like '*tracked*break*offscreen activity*manually paused*locked or asleep*not tracked*') 'Breaks and offscreen activity must have distinct colors and accessible labels instead of appearing as lock, sleep, or tracking gaps'
     $healthTimeline = Field 'trackingTimeline'
-    Assert ($healthTimeline.AccessibleRole -eq [Windows.Forms.AccessibleRole]::Graphic -and $healthTimeline.Bottom -lt (Field 'trackingEvents').Top) 'Tracking timeline must fit above recent events without overlap'
+    Assert ($healthTimeline.AccessibleRole -eq [Windows.Forms.AccessibleRole]::Graphic -and $healthTimeline.Parent -is [Windows.Forms.Panel] -and $healthTimeline.Parent.Bottom -lt (Field 'trackingEvents').Top) 'The expandable tracking timeline viewport must fit above recent events without overlap'
     $timelineModel.Dispose()
     $navDate=[datetime]::Today.AddDays(-1); $navStart=New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=$navDate.AddHours(8).ToString('o'); Detail='Previous day start.' }; $navStop=New-Object TrackingEventRecord -Property @{ Kind='Stopped'; Start=$navDate.AddHours(10).ToString('o'); Detail='Previous day stop.' }; $state.TrackingEvents.Add($navStart); $state.TrackingEvents.Add($navStop)
     $app.GetType().GetMethod('ChangeTrackingHealthDay',$flags).Invoke($app,@(-1))
