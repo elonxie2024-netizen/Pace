@@ -9,14 +9,24 @@ public sealed class TrackingHealthTimeline : Control {
         public DateTime Start,End;
         public string Kind="";
     }
+    sealed class Marker {
+        public DateTime At;
+        public string Kind="";
+    }
 
     readonly List<Slice> slices=new List<Slice>();
+    readonly List<Marker> markers=new List<Marker>();
+    readonly ToolTip hoverTip=new ToolTip { InitialDelay=200,ReshowDelay=100,AutoPopDelay=6000,ShowAlways=true };
+    Slice hoveredSlice;
+    Marker hoveredMarker;
     readonly Color tracked=Color.FromArgb(81,145,118);
     readonly Color locked=Color.FromArgb(213,170,92);
     readonly Color manualPaused=Color.FromArgb(104,139,178);
     readonly Color breakColor=Color.FromArgb(108,155,180);
     readonly Color offscreen=Color.FromArgb(139,119,174);
     readonly Color gap=Color.FromArgb(194,105,91);
+    readonly Color breakCanceled=Color.FromArgb(190,126,71);
+    readonly Color breakEndedEarly=Color.FromArgb(174,85,101);
     Color Empty { get { return PaceTheme.Dark?Color.FromArgb(54,65,59):Color.FromArgb(229,232,226); } }
     DateTime day=DateTime.Today,now=DateTime.Now;
     DateTime fullStart=DateTime.Today,fullEnd=DateTime.Now,viewStart=DateTime.Today,viewEnd=DateTime.Now;
@@ -36,6 +46,8 @@ public sealed class TrackingHealthTimeline : Control {
     public double BreakSeconds { get; private set; }
     public double OffscreenSeconds { get; private set; }
     public double GapSeconds { get; private set; }
+    public int BreakCanceledMarkers { get; private set; }
+    public int BreakEndedEarlyMarkers { get; private set; }
 
     public TrackingHealthTimeline() {
         ZoomLevel=1;
@@ -58,14 +70,15 @@ public sealed class TrackingHealthTimeline : Control {
         else if(item.Kind=="Paused") { if(running)userPaused=true; }
         else if(item.Kind=="Resumed") { if(running)userPaused=false; }
         else if(item.Kind=="BreakStarted") { onBreak=true; inOffscreen=false; }
-        else if(item.Kind=="BreakEnded")onBreak=false;
+        else if(item.Kind=="BreakEnded" || item.Kind=="BreakEndedEarly")onBreak=false;
         else if(item.Kind=="OffscreenStarted") { inOffscreen=true; onBreak=false; }
         else if(item.Kind=="OffscreenEnded")inOffscreen=false;
     }
     static string SliceKind(bool systemPaused,bool userPaused,bool onBreak,bool inOffscreen) { return inOffscreen?"Offscreen":onBreak?"Break":userPaused?"ManualPaused":systemPaused?"Paused":"Tracked"; }
     void AddSlice(DateTime start,DateTime end,string kind) {
         if(end<=start)return;
-        slices.Add(new Slice { Start=start,End=end,Kind=kind });
+        if(slices.Count>0 && slices[slices.Count-1].Kind==kind && slices[slices.Count-1].End==start)slices[slices.Count-1].End=end;
+        else slices.Add(new Slice { Start=start,End=end,Kind=kind });
         double seconds=(end-start).TotalSeconds;
         if(kind=="Tracked")TrackedSeconds+=seconds;
         else if(kind=="Paused")PausedSeconds+=seconds;
@@ -85,12 +98,13 @@ public sealed class TrackingHealthTimeline : Control {
     public void SetData(IEnumerable<TrackingEventRecord> records,DateTime current,bool trackingOpen,bool currentlySystemPaused,bool currentlyUserPaused) {
         bool sameDay=day==current.Date; DateTime oldFullStart=fullStart,oldFullEnd=fullEnd,oldViewStart=viewStart,oldViewEnd=viewEnd;
         now=current; day=current.Date; DateTime endOfDay=day.AddDays(1),visibleEnd=current<endOfDay?current:endOfDay;
-        slices.Clear(); TrackedSeconds=0; PausedSeconds=0; ManualPausedSeconds=0; BreakSeconds=0; OffscreenSeconds=0; GapSeconds=0;
+        slices.Clear(); markers.Clear(); hoveredSlice=null; hoveredMarker=null; hoverTip.Hide(this); TrackedSeconds=0; PausedSeconds=0; ManualPausedSeconds=0; BreakSeconds=0; OffscreenSeconds=0; GapSeconds=0; BreakCanceledMarkers=0; BreakEndedEarlyMarkers=0;
         List<KeyValuePair<DateTime,TrackingEventRecord>> points=new List<KeyValuePair<DateTime,TrackingEventRecord>>();
         List<Slice> gaps=new List<Slice>();
         if(records!=null)foreach(TrackingEventRecord item in records) {
             DateTime start,eventEnd;
             if(item==null || !Parse(item.Start,out start))continue;
+            if((item.Kind=="BreakCanceled" || item.Kind=="BreakEndedEarly") && start>=day && start<=visibleEnd) { markers.Add(new Marker { At=start,Kind=item.Kind }); if(item.Kind=="BreakCanceled")BreakCanceledMarkers++; else BreakEndedEarlyMarkers++; }
             if(item.Kind=="Gap" && Parse(item.End,out eventEnd)) {
                 DateTime clippedStart=start>day?start:day,clippedEnd=eventEnd<visibleEnd?eventEnd:visibleEnd;
                 if(clippedEnd>clippedStart)gaps.Add(new Slice { Start=clippedStart,End=clippedEnd,Kind="Gap" });
@@ -146,7 +160,7 @@ public sealed class TrackingHealthTimeline : Control {
     void SyncScale() {
         int viewport=ViewportWidth,viewportHeight=ViewportHeight;
         if(baseWidth<=0 || ZoomLevel==1)baseWidth=viewport;
-        if(baseHeight<=0 || ZoomLevel==1)baseHeight=Math.Max(88,viewportHeight);
+        if(baseHeight<=0 || ZoomLevel==1)baseHeight=Math.Max(105,viewportHeight);
         int desired=Math.Max(20,baseWidth*Math.Max(1,ZoomLevel));
         if(Width!=desired)Width=desired;
         int desiredHeight=Math.Max(20,baseHeight*Math.Max(1,ZoomLevel));
@@ -170,9 +184,21 @@ public sealed class TrackingHealthTimeline : Control {
     public void ZoomIn() { double center=(viewStart.AddTicks((viewEnd-viewStart).Ticks/2)-fullStart).TotalSeconds/Math.Max(1,(fullEnd-fullStart).TotalSeconds); int next=Math.Min(8,ZoomLevel*2); FocusVertically(next); SetView(next,center,true); }
     public void ZoomOut() { double center=(viewStart.AddTicks((viewEnd-viewStart).Ticks/2)-fullStart).TotalSeconds/Math.Max(1,(fullEnd-fullStart).TotalSeconds); int next=Math.Max(1,ZoomLevel/2); FocusVertically(next); SetView(next,center,true); }
     protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); int visibleLeft=Math.Max(0,-Left),viewport=ViewportWidth; double fraction=Math.Max(0,Math.Min(1,(e.X-visibleLeft-10*ZoomLevel)/(double)Math.Max(1,viewport-20*ZoomLevel))); Rectangle lane=new Rectangle(10*ZoomLevel,25*ZoomLevel,Math.Max(20,ClientSize.Width-20*ZoomLevel),18*ZoomLevel); DateTime anchor=fullStart.AddSeconds((fullEnd-fullStart).TotalSeconds*Math.Max(0,Math.Min(1,(e.X-lane.Left)/(double)Math.Max(1,lane.Width)))); int next=e.Delta>0?ZoomLevel*2:ZoomLevel/2; next=Math.Max(1,Math.Min(8,next)); double total=Math.Max(1,(fullEnd-fullStart).TotalSeconds),span=total/next; DateTime start=anchor.AddSeconds(-span*fraction); double center=(start.AddSeconds(span/2)-fullStart).TotalSeconds/total; FocusVertically(next); SetView(next,center,true); }
-    protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); if(e.Button==MouseButtons.Left && ZoomLevel>1) { Point screen=PointToScreen(e.Location); panning=true; panStartX=screen.X; panStartY=screen.Y; panStartTop=Top; panStartViewStart=viewStart; panStartViewEnd=viewEnd; Capture=true; Cursor=Cursors.SizeAll; } }
-    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if(!panning)return; Point screen=PointToScreen(e.Location); double shift=-(screen.X-panStartX)/(double)Math.Max(1,ViewportWidth)*(panStartViewEnd-panStartViewStart).TotalSeconds; DateTime start=panStartViewStart.AddSeconds(shift),end=panStartViewEnd.AddSeconds(shift); if(start<fullStart) { start=fullStart; end=start+(panStartViewEnd-panStartViewStart); } if(end>fullEnd) { end=fullEnd; start=end-(panStartViewEnd-panStartViewStart); } viewStart=start; viewEnd=end; int maxTop=Math.Max(0,Height-ViewportHeight),wantedTop=Math.Max(-maxTop,Math.Min(0,panStartTop+screen.Y-panStartY)); verticalFraction=maxTop<=0?0:-wantedTop/(double)maxTop; SyncScale(); if(ViewChanged!=null)ViewChanged(this,EventArgs.Empty); Invalidate(); }
+    Rectangle ScaledLane() { int scale=Math.Max(1,ZoomLevel); return new Rectangle(10*scale,25*scale,Math.Max(20,ClientSize.Width-20*scale),18*scale); }
+    static string SliceLabel(string kind) { return kind=="Offscreen"?"Offscreen activity":kind=="ManualPaused"?"Paused":kind=="Paused"?"Locked / sleep":kind=="Gap"?"Not tracked":kind; }
+    string HoverText(Slice slice) { return SliceLabel(slice.Kind)+"  ·  "+Duration((slice.End-slice.Start).TotalSeconds); }
+    string MarkerText(Marker marker) { return (marker.Kind=="BreakCanceled"?"Break canceled":"Break ended early")+"  ·  "+marker.At.ToString("h:mm tt"); }
+    void UpdateHover(Point point) {
+        Rectangle lane=ScaledLane(); int scale=Math.Max(1,ZoomLevel); Marker markerHit=null; Slice sliceHit=null;
+        if(point.Y>=lane.Bottom && point.Y<=lane.Bottom+12*scale)for(int i=markers.Count-1;i>=0;i--)if(Math.Abs(TimeX(markers[i].At,lane)-point.X)<=5*scale) { markerHit=markers[i]; break; }
+        if(markerHit==null && lane.Contains(point)) { double fraction=Math.Max(0,Math.Min(1,(point.X-lane.Left)/(double)Math.Max(1,lane.Width))); DateTime at=fullStart.AddSeconds((fullEnd-fullStart).TotalSeconds*fraction); for(int i=slices.Count-1;i>=0;i--)if(at>=slices[i].Start && at<=slices[i].End) { sliceHit=slices[i]; break; } }
+        if(markerHit==hoveredMarker && sliceHit==hoveredSlice)return; hoveredMarker=markerHit; hoveredSlice=sliceHit; string text=markerHit!=null?MarkerText(markerHit):sliceHit!=null?HoverText(sliceHit):""; hoverTip.SetToolTip(this,text); hoverTip.Hide(this); if(text.Length>0 && IsHandleCreated)hoverTip.Show(text,this,point.X+12*scale,point.Y+12*scale,6000);
+    }
+    protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); if(e.Button==MouseButtons.Left && ZoomLevel>1) { hoverTip.Hide(this); Point screen=PointToScreen(e.Location); panning=true; panStartX=screen.X; panStartY=screen.Y; panStartTop=Top; panStartViewStart=viewStart; panStartViewEnd=viewEnd; Capture=true; Cursor=Cursors.SizeAll; } }
+    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if(!panning) { UpdateHover(e.Location); return; } Point screen=PointToScreen(e.Location); double shift=-(screen.X-panStartX)/(double)Math.Max(1,ViewportWidth)*(panStartViewEnd-panStartViewStart).TotalSeconds; DateTime start=panStartViewStart.AddSeconds(shift),end=panStartViewEnd.AddSeconds(shift); if(start<fullStart) { start=fullStart; end=start+(panStartViewEnd-panStartViewStart); } if(end>fullEnd) { end=fullEnd; start=end-(panStartViewEnd-panStartViewStart); } viewStart=start; viewEnd=end; int maxTop=Math.Max(0,Height-ViewportHeight),wantedTop=Math.Max(-maxTop,Math.Min(0,panStartTop+screen.Y-panStartY)); verticalFraction=maxTop<=0?0:-wantedTop/(double)maxTop; SyncScale(); if(ViewChanged!=null)ViewChanged(this,EventArgs.Empty); Invalidate(); }
     protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); if(!panning)return; panning=false; Capture=false; Cursor=Cursors.Hand; }
+    protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); if(!panning) { hoveredSlice=null; hoveredMarker=null; hoverTip.Hide(this); hoverTip.SetToolTip(this,""); } }
+    protected override void Dispose(bool disposing) { if(disposing)hoverTip.Dispose(); base.Dispose(disposing); }
     static GraphicsPath RoundPath(Rectangle rectangle,int radius) {
         GraphicsPath path=new GraphicsPath();
         int diameter=Math.Min(radius*2,Math.Min(rectangle.Width,rectangle.Height));
@@ -190,6 +216,10 @@ public sealed class TrackingHealthTimeline : Control {
         using(Brush brush=new SolidBrush(color))graphics.FillEllipse(brush,x,y+3*scale,8*scale,8*scale);
         TextRenderer.DrawText(graphics,label,font,new Point(x+12*scale,y),PaceTheme.Muted,TextFormatFlags.NoPadding);
     }
+    void DrawMarkerLegend(Graphics graphics,string label,Color color,int x,int y,int scale,Font font) {
+        using(Pen pen=new Pen(color,2*scale))graphics.DrawLine(pen,x+4*scale,y+1*scale,x+4*scale,y+12*scale);
+        TextRenderer.DrawText(graphics,label,font,new Point(x+12*scale,y),PaceTheme.Muted,TextFormatFlags.NoPadding);
+    }
     protected override void OnPaint(PaintEventArgs e) {
         base.OnPaint(e); e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;
         Color ink=PaceTheme.Text,muted=PaceTheme.Muted; int scale=Math.Max(1,ZoomLevel),logicalWidth=Math.Max(20,baseWidth);
@@ -197,7 +227,7 @@ public sealed class TrackingHealthTimeline : Control {
         using(Font heading=new Font("Segoe UI Semibold",9*scale)) {
         TextRenderer.DrawText(e.Graphics,day==DateTime.Today?"TODAY'S TRACKING":day.ToString("ddd, MMM d").ToUpperInvariant(),heading,new Point(10*scale,3*scale),ink,TextFormatFlags.NoPadding);
         TextRenderer.DrawText(e.Graphics,Duration(TrackedSeconds)+" tracked",scaledFont,new Rectangle(150*scale,3*scale,Math.Max(20,(logicalWidth-160)*scale),18*scale),muted,TextFormatFlags.Right|TextFormatFlags.NoPadding);
-        Rectangle lane=new Rectangle(10*scale,25*scale,Math.Max(20,(logicalWidth-20)*scale),18*scale);
+        Rectangle lane=ScaledLane();
         using(Brush brush=new SolidBrush(Empty))FillRound(e.Graphics,brush,lane,8*scale);
         GraphicsState laneState=e.Graphics.Save(); using(GraphicsPath lanePath=RoundPath(lane,8*scale))e.Graphics.SetClip(lanePath);
         foreach(Slice slice in slices)if(slice.Kind!="Gap") {
@@ -215,21 +245,26 @@ public sealed class TrackingHealthTimeline : Control {
         if(now>=fullStart && now<=fullEnd && day==DateTime.Today) {
             int currentX=TimeX(now,lane); using(Pen pen=new Pen(ink,2*scale))e.Graphics.DrawLine(pen,currentX,lane.Top-3*scale,currentX,lane.Bottom+3*scale);
         }
+        foreach(Marker marker in markers) {
+            int x=TimeX(marker.At,lane); Color color=marker.Kind=="BreakCanceled"?breakCanceled:breakEndedEarly;
+            using(Pen pen=new Pen(color,2*scale)) { e.Graphics.DrawLine(pen,x,lane.Bottom+2*scale,x,lane.Bottom+11*scale); e.Graphics.DrawLine(pen,x-3*scale,lane.Bottom+11*scale,x+3*scale,lane.Bottom+11*scale); }
+        }
         int divisions=4;
         for(int i=0;i<=divisions;i++) {
             DateTime labelTime=fullStart.AddTicks((long)((fullEnd-fullStart).Ticks*i/(double)divisions)); string label=labelTime.ToString("h:mmtt").ToLowerInvariant();
             int x=lane.Left+(int)Math.Round(lane.Width*i/(double)divisions),width=52*scale;
             if(i==0)x=lane.Left; else if(i==divisions)x=lane.Right-width; else x-=width/2;
-            TextRenderer.DrawText(e.Graphics,label,scaledFont,new Rectangle(x,47*scale,width,15*scale),muted,TextFormatFlags.HorizontalCenter|TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(e.Graphics,label,scaledFont,new Rectangle(x,59*scale,width,15*scale),muted,TextFormatFlags.HorizontalCenter|TextFormatFlags.NoPadding);
         }
         int legendY=Math.Max(63,baseHeight-18)*scale;
         DrawLegend(e.Graphics,"Tracked",tracked,10*scale,legendY,scale,scaledFont);
-        DrawLegend(e.Graphics,"Paused",manualPaused,88*scale,legendY,scale,scaledFont);
-        DrawLegend(e.Graphics,"Break",breakColor,160*scale,legendY,scale,scaledFont);
-        DrawLegend(e.Graphics,"Offscreen activity",offscreen,222*scale,legendY,scale,scaledFont);
-        DrawLegend(e.Graphics,"Locked / sleep",locked,350*scale,legendY,scale,scaledFont);
-        DrawLegend(e.Graphics,"Not tracked",gap,462*scale,legendY,scale,scaledFont);
-        DrawLegend(e.Graphics,"No timeline data",Empty,565*scale,legendY,scale,scaledFont);
+        DrawLegend(e.Graphics,"Paused",manualPaused,80*scale,legendY,scale,scaledFont);
+        DrawLegend(e.Graphics,"Break",breakColor,145*scale,legendY,scale,scaledFont);
+        DrawLegend(e.Graphics,"Offscreen",offscreen,200*scale,legendY,scale,scaledFont);
+        DrawLegend(e.Graphics,"Locked / sleep",locked,285*scale,legendY,scale,scaledFont);
+        DrawLegend(e.Graphics,"Not tracked",gap,395*scale,legendY,scale,scaledFont);
+        DrawMarkerLegend(e.Graphics,"Canceled",breakCanceled,495*scale,legendY,scale,scaledFont);
+        DrawMarkerLegend(e.Graphics,"Left early",breakEndedEarly,585*scale,legendY,scale,scaledFont);
         }
     }
 }

@@ -134,15 +134,23 @@ try {
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Stopped'; Start=[datetime]::Today.AddHours(4).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Gap'; Start=[datetime]::Today.AddHours(4).ToString('o'); End=[datetime]::Today.AddHours(5).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=[datetime]::Today.AddHours(5).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='BreakCanceled'; Start=[datetime]::Today.AddHours(5.25).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='BreakStarted'; Start=[datetime]::Today.AddHours(5.5).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Locked'; Start=[datetime]::Today.AddHours(5.67).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Unlocked'; Start=[datetime]::Today.AddHours(5.83).ToString('o') }))
-    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='BreakEnded'; Start=[datetime]::Today.AddHours(6).ToString('o') }))
+    $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='BreakEndedEarly'; Start=[datetime]::Today.AddHours(6).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='OffscreenStarted'; Start=[datetime]::Today.AddHours(6.25).ToString('o') }))
     $timelineRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='OffscreenEnded'; Start=[datetime]::Today.AddHours(6.75).ToString('o') }))
     $timelineModel = New-Object TrackingHealthTimeline
+    $timelineModel.Size = New-Object Drawing.Size 790,105
     $timelineModel.SetData($timelineRecords,$timelineNow,$true,$false,$false)
     Assert ([Math]::Abs($timelineModel.TrackedSeconds-9000) -lt 1 -and [Math]::Abs($timelineModel.BreakSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.OffscreenSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.ManualPausedSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.PausedSeconds-3600) -lt 1 -and [Math]::Abs($timelineModel.GapSeconds-3600) -lt 1) 'Tracking timeline must distinguish tracked, break, offscreen activity, manually paused, locked or asleep, and untracked intervals'
+    Assert ($timelineModel.BreakCanceledMarkers -eq 1 -and $timelineModel.BreakEndedEarlyMarkers -eq 1) 'Tracking health must retain separate markers for canceled scheduled breaks and active breaks ended early'
+    $timelineMouse=$timelineModel.GetType().GetMethod('OnMouseMove',$flags)
+    $hoverBreak=New-Object Windows.Forms.MouseEventArgs ([Windows.Forms.MouseButtons]::None),0,620,34,0; $timelineMouse.Invoke($timelineModel,@($hoverBreak.PSObject.BaseObject)); $hoverTip=$timelineModel.GetType().GetField('hoverTip',$flags).GetValue($timelineModel)
+    Assert ($hoverTip.GetToolTip($timelineModel) -like 'Break*30m') 'Hovering over a timeline section must show its type and period length'
+    $hoverCanceled=New-Object Windows.Forms.MouseEventArgs ([Windows.Forms.MouseButtons]::None),0,555,50,0; $timelineMouse.Invoke($timelineModel,@($hoverCanceled.PSObject.BaseObject))
+    Assert ($hoverTip.GetToolTip($timelineModel) -like 'Break canceled*') 'Hovering over a cancellation line must identify the break event'
     Assert ($timelineModel.RangeStart -eq [datetime]::Today.AddHours(1) -and $timelineModel.RangeEnd -eq $timelineNow) 'The tracking bar must begin at the first recorded computer activity instead of midnight'
     $fullTimelineSpan=($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds; $fullTimelineWidth=$timelineModel.Width; $fullTimelineHeight=$timelineModel.Height; $timelineModel.ZoomIn()
     Assert ($timelineModel.ZoomLevel -eq 2 -and $timelineModel.Width -eq 2*$fullTimelineWidth -and $timelineModel.Height -eq 2*$fullTimelineHeight -and ($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds -lt $fullTimelineSpan) 'Tracking health must enlarge both dimensions of the complete timeline and show a shorter time window when zoomed in'
@@ -412,12 +420,14 @@ try {
     Assert ((Field 'cleanupActive') -and (Field 'cleanupMuted') -and -not $mutePeriodic.Enabled -and $mutePeriodic.Text -eq 'Sound muted') 'Mute sound must stop only the sound while preserving the periodic break countdown'
     $cancelPeriodic.PerformClick()
     Assert (-not (Field 'cleanupActive')) 'Cancel break must dismiss the periodic wrap-up without starting a break'
+    Assert ($state.TrackingEvents[$state.TrackingEvents.Count-1].Kind -eq 'BreakCanceled') 'Canceling a periodic break must create a tracking-health marker'
     Call 'BeginPeriodicCleanup'
     Assert ([Math]::Abs(((Field 'cleanupUntil')-[datetime]::UtcNow).TotalMinutes - $state.PeriodicWrapMinutes) -lt 0.1) 'The periodic wrap-up countdown must use its custom duration'
     $startNow = @((Field 'toast').Controls | Where-Object { $_ -is [Windows.Forms.Button] -and $_.Text -eq 'Start break' })[0]
     $startNow.PerformClick()
     Assert ((Field 'state').BreakUntil -gt [datetime]::UtcNow -and -not (Field 'cleanupActive')) 'Start break must begin the full-screen break immediately'
     Call 'CancelBreak'
+    Assert ($state.TrackingEvents[$state.TrackingEvents.Count-1].Kind -eq 'BreakEndedEarly') 'Leaving an active break before its timer finishes must create a separate early-exit marker'
 
     $currentPlan = $state.GetWeek($thisWeek)
     $currentPlan.Advanced = $true

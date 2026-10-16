@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.25.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.25.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.26.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.26.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -173,7 +173,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.25";
+    const string PaceVersion="0.2.26";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -343,10 +343,10 @@ public class ScreenTime : Form {
         trackingHealthDetail=AddLabel(health,"",18,49,575,42,10); trackingHealthDetail.ForeColor=Color.FromArgb(76,100,91);
         trackingLaunchStatus=AddLabel(health,"",18,96,575,28,10); trackingLaunchStatus.ForeColor=Color.FromArgb(91,108,100);
         enableStartup=ButtonAt(health,"Turn on launch at sign-in",610,62,198,38,delegate { if(startupItem!=null)startupItem.Checked=true; else SetStartWithWindows(true); RefreshTrackingHealth(); });
-        Panel trackingViewport=new Panel { Location=new Point(18,120),Size=new Size(790,88),BackColor=PaceTheme.Surface }; health.Controls.Add(trackingViewport);
+        Panel trackingViewport=new Panel { Location=new Point(18,120),Size=new Size(790,105),BackColor=PaceTheme.Surface }; health.Controls.Add(trackingViewport);
         trackingTimeline=new TrackingHealthTimeline { Location=Point.Empty,Size=trackingViewport.ClientSize }; trackingViewport.Controls.Add(trackingTimeline);
         trackingTimeline.ViewChanged+=delegate { UpdateTrackingZoomControls(); };
-        trackingEvents=new ListBox { Location=new Point(18,214),Size=new Size(790,38),BorderStyle=BorderStyle.None,HorizontalScrollbar=true,BackColor=Color.FromArgb(252,251,247) }; health.Controls.Add(trackingEvents);
+        trackingEvents=new ListBox { Location=new Point(18,231),Size=new Size(790,21),BorderStyle=BorderStyle.None,HorizontalScrollbar=true,BackColor=Color.FromArgb(252,251,247) }; health.Controls.Add(trackingEvents);
         cornerBar=new CornerBar(); cornerBar.Icon=Icon; if(state.CornerPositioned)cornerBar.RestoreSavedPosition(state.CornerX,state.CornerY); cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartManualShutdown(); }; cornerBar.PauseClicked+=delegate { TogglePause(); }; cornerBar.DoNotDisturbClicked+=delegate { ToggleDoNotDisturb(); }; cornerBar.UserPositionChanged+=delegate { state.CornerPositioned=true; state.CornerX=cornerBar.Left; state.CornerY=cornerBar.Top; Save(); }; cornerBar.PositionReset+=delegate { state.CornerPositioned=false; Save(); };
         appPauseOverlay=new PauseOverlay(); appPauseOverlay.ResumeRequested+=delegate { ResumeAll(); }; Controls.Add(appPauseOverlay);
         VisibleChanged+=delegate { if(paused && Visible)appPauseOverlay.Cover(this); };
@@ -931,7 +931,7 @@ public class ScreenTime : Form {
         alertSound.Stop();
     }
     void MuteCleanupSound() { if(!cleanupActive)return; cleanupMuted=true; alertSound.Stop(); if(cleanupMuteButton!=null && !cleanupMuteButton.IsDisposed) { cleanupMuteButton.Text="Sound muted"; cleanupMuteButton.Enabled=false; } }
-    void CancelCleanup() { if(cleanupClosesPlan)return; StopCleanup(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
+    void CancelCleanup() { if(cleanupClosesPlan)return; LogTrackingEvent("BreakCanceled",DateTime.Now,DateTime.MinValue,"Scheduled break was canceled during wrap-up."); StopCleanup(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
     void StartBreak() {
         if(Breaking || state.BreakWaiting || state.BreakOffscreen)return;
         ClearBlockMismatch(); StopCleanup();
@@ -953,7 +953,7 @@ public class ScreenTime : Form {
     }
     void ResumeForActiveBlock() { if(state.BreakOffscreen)LogTrackingEvent("OffscreenEnded",DateTime.Now,DateTime.MinValue,"Offscreen activity ended when an active block began."); state.DailyShutdown=false; state.BreakOffscreen=false; state.InactivityOffscreen=false; day.ActiveBlock=""; day.ActiveReason=""; day.BlockUsed=0; day.Exhausted=false; if(breakScreen!=null)breakScreen.Hide(); Save(); }
     string DailyShutdownMessage() { if(UsingHybridPlan && CurrentRemaining<=0)return "Your daily screen-time limit is complete. Add more time if you have a reason."; DateTime? next=UsingAdvancedPlan && !state.ManualShutdown?NextBlockStart:null; return next==null?"Your daily screen-time plan is complete. Add more time if you have a reason.":"This block is complete. Your next block starts "+next.Value.ToString("ddd h:mm tt")+"."; }
-    void CancelBreak() { if(!Breaking && !state.BreakWaiting && !state.BreakOffscreen)return; LogTrackingEvent(state.BreakOffscreen?"OffscreenEnded":"BreakEnded",DateTime.Now,DateTime.MinValue,state.BreakOffscreen?"Offscreen activity was canceled.":"Break was canceled."); state.BreakUntil=DateTime.MinValue; state.BreakWaiting=false; state.BreakOffscreen=false; state.InactivityOffscreen=false; if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
+    void CancelBreak() { if(!Breaking && !state.BreakWaiting && !state.BreakOffscreen)return; bool early=Breaking && !state.BreakOffscreen; LogTrackingEvent(state.BreakOffscreen?"OffscreenEnded":early?"BreakEndedEarly":"BreakEnded",DateTime.Now,DateTime.MinValue,state.BreakOffscreen?"Offscreen activity was canceled.":early?"Break ended before its timer finished.":"Break was canceled."); state.BreakUntil=DateTime.MinValue; state.BreakWaiting=false; state.BreakOffscreen=false; state.InactivityOffscreen=false; if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
     void ContinueBreak() { if(!state.BreakWaiting && !state.BreakOffscreen)return; LogTrackingEvent(state.BreakOffscreen?"OffscreenEnded":"BreakEnded",DateTime.Now,DateTime.MinValue,state.BreakOffscreen?"Offscreen activity ended.":"Break ended."); state.BreakWaiting=false; state.BreakOffscreen=false; state.InactivityOffscreen=false; if(breakScreen!=null)breakScreen.Hide(); last=watch.Elapsed.TotalSeconds; Save(); RefreshView(); }
     void OffscreenActivity() { if(!state.BreakOffscreen) { if(Breaking || state.BreakWaiting)LogTrackingEvent("BreakEnded",DateTime.Now,DateTime.MinValue,"Break changed to offscreen activity."); LogTrackingEvent("OffscreenStarted",DateTime.Now,DateTime.MinValue,"Offscreen activity began."); } state.BreakOffscreen=true; state.BreakWaiting=true; state.InactivityOffscreen=false; state.BreakUntil=DateTime.MinValue; if(breakScreen!=null)breakScreen.SetOffscreen(); Save(); RefreshView(); }
     void AddTime() {
@@ -999,7 +999,7 @@ public class ScreenTime : Form {
         DateTime start,end; if(!DateTime.TryParse(item.Start,out start))return item.Kind;
         string when=start.ToString("ddd, MMM d  h:mm tt");
         if(item.Kind=="Gap" && DateTime.TryParse(item.End,out end))return when+"–"+end.ToString(start.Date==end.Date?"h:mm tt":"ddd h:mm tt")+"    NOT TRACKED  "+FormatDuration((end-start).TotalSeconds)+"  ·  "+item.Detail;
-        string label=item.Kind=="BreakStarted"?"BREAK STARTED":item.Kind=="BreakEnded"?"BREAK ENDED":item.Kind=="OffscreenStarted"?"OFFSCREEN STARTED":item.Kind=="OffscreenEnded"?"OFFSCREEN ENDED":item.Kind.ToUpperInvariant();
+        string label=item.Kind=="BreakStarted"?"BREAK STARTED":item.Kind=="BreakEnded"?"BREAK ENDED":item.Kind=="BreakCanceled"?"BREAK CANCELED":item.Kind=="BreakEndedEarly"?"BREAK ENDED EARLY":item.Kind=="OffscreenStarted"?"OFFSCREEN STARTED":item.Kind=="OffscreenEnded"?"OFFSCREEN ENDED":item.Kind.ToUpperInvariant();
         return when+"    "+label+"  ·  "+item.Detail;
     }
     DateTime EarliestTrackingDate() { DateTime earliest=DateTime.Today; bool found=false; foreach(TrackingEventRecord item in state.TrackingEvents) { DateTime start; if(item!=null && DateTime.TryParse(item.Start,out start) && (!found || start.Date<earliest)) { earliest=start.Date; found=true; } } return found?earliest:DateTime.Today; }
