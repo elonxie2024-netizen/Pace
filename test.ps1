@@ -144,9 +144,9 @@ try {
     $timelineModel.SetData($timelineRecords,$timelineNow,$true,$false,$false)
     Assert ([Math]::Abs($timelineModel.TrackedSeconds-9000) -lt 1 -and [Math]::Abs($timelineModel.BreakSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.OffscreenSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.ManualPausedSeconds-1800) -lt 1 -and [Math]::Abs($timelineModel.PausedSeconds-3600) -lt 1 -and [Math]::Abs($timelineModel.GapSeconds-3600) -lt 1) 'Tracking timeline must distinguish tracked, break, offscreen activity, manually paused, locked or asleep, and untracked intervals'
     Assert ($timelineModel.RangeStart -eq [datetime]::Today.AddHours(1) -and $timelineModel.RangeEnd -eq $timelineNow) 'The tracking bar must begin at the first recorded computer activity instead of midnight'
-    $fullTimelineSpan=($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds; $fullTimelineWidth=$timelineModel.Width; $timelineModel.ZoomIn()
-    Assert ($timelineModel.ZoomLevel -eq 2 -and $timelineModel.Width -eq 2*$fullTimelineWidth -and ($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds -lt $fullTimelineSpan) 'Tracking health must enlarge the entire timeline and show a shorter time window when zoomed in'
-    $timelineModel.ZoomOut(); Assert ($timelineModel.ZoomLevel -eq 1 -and $timelineModel.Width -eq $fullTimelineWidth -and [Math]::Abs(($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds-$fullTimelineSpan) -lt 1) 'Zooming out must restore the complete daily timeline and its original width'
+    $fullTimelineSpan=($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds; $fullTimelineWidth=$timelineModel.Width; $fullTimelineHeight=$timelineModel.Height; $timelineModel.ZoomIn()
+    Assert ($timelineModel.ZoomLevel -eq 2 -and $timelineModel.Width -eq 2*$fullTimelineWidth -and $timelineModel.Height -eq 2*$fullTimelineHeight -and ($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds -lt $fullTimelineSpan) 'Tracking health must enlarge both dimensions of the complete timeline and show a shorter time window when zoomed in'
+    $timelineModel.ZoomOut(); Assert ($timelineModel.ZoomLevel -eq 1 -and $timelineModel.Width -eq $fullTimelineWidth -and $timelineModel.Height -eq $fullTimelineHeight -and [Math]::Abs(($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds-$fullTimelineSpan) -lt 1) 'Zooming out must restore the complete daily timeline and its original dimensions'
     $manualPauseColor = $timelineModel.GetType().GetField('manualPaused',$flags).GetValue($timelineModel)
     $breakColor = $timelineModel.GetType().GetField('breakColor',$flags).GetValue($timelineModel)
     $offscreenColor = $timelineModel.GetType().GetField('offscreen',$flags).GetValue($timelineModel)
@@ -163,7 +163,7 @@ try {
     Assert ((Field 'trackingHealthDate') -eq [datetime]::Today -and -not (Field 'trackingNextDay').Enabled) 'The next-day arrow must return to today and stop there'
     (Field 'trackingTimeline').ZoomIn()
     $zoomedTimeline=Field 'trackingTimeline'; $zoomedLabel=Field 'trackingZoomLabel'; $zoomedOutButton=Field 'trackingZoomOut'
-    Assert ($zoomedTimeline.ZoomLevel -eq 2 -and $zoomedLabel.Text -eq '2x' -and $zoomedOutButton.Enabled) 'The visible zoom controls must update the tracking timeline and zoom label'
+    Assert ($zoomedTimeline.ZoomLevel -eq 2 -and $zoomedTimeline.Width -eq 2*$zoomedTimeline.Parent.ClientSize.Width -and $zoomedTimeline.Height -eq 2*$zoomedTimeline.Parent.ClientSize.Height -and $zoomedTimeline.Top -lt 0 -and $zoomedLabel.Text -eq '2x' -and $zoomedOutButton.Enabled) 'The visible zoom controls must magnify the timeline proportionally inside its viewport'
     (Field 'trackingTimeline').ZoomOut()
     $healthTopControls=@((Field 'trackingPreviousDay'),(Field 'trackingDayLabel'),(Field 'trackingNextDay'),(Field 'trackingZoomOut'),(Field 'trackingZoomLabel'),(Field 'trackingZoomIn'))
     for($a=0;$a -lt $healthTopControls.Count;$a++){for($b=$a+1;$b -lt $healthTopControls.Count;$b++){Assert (-not $healthTopControls[$a].Bounds.IntersectsWith($healthTopControls[$b].Bounds)) 'Tracking day and zoom controls must not overlap'}}

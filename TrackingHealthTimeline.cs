@@ -21,7 +21,8 @@ public sealed class TrackingHealthTimeline : Control {
     DateTime day=DateTime.Today,now=DateTime.Now;
     DateTime fullStart=DateTime.Today,fullEnd=DateTime.Now,viewStart=DateTime.Today,viewEnd=DateTime.Now;
     bool panning;
-    int panStartX,baseWidth;
+    int panStartX,panStartY,panStartTop,baseWidth,baseHeight;
+    double verticalFraction;
     DateTime panStartViewStart,panStartViewEnd;
     public event EventHandler ViewChanged;
     public int ZoomLevel { get; private set; }
@@ -141,16 +142,19 @@ public sealed class TrackingHealthTimeline : Control {
         return lane.Left+(int)Math.Round(Math.Max(0,Math.Min(1,fraction))*lane.Width);
     }
     int ViewportWidth { get { return Parent==null?Math.Max(20,baseWidth>0?baseWidth:Width):Math.Max(20,Parent.ClientSize.Width); } }
-    int ViewportLeft { get { return Math.Max(0,-Left); } }
+    int ViewportHeight { get { return Parent==null?Math.Max(20,baseHeight>0?baseHeight:Height):Math.Max(20,Parent.ClientSize.Height); } }
     void SyncScale() {
-        int viewport=ViewportWidth;
+        int viewport=ViewportWidth,viewportHeight=ViewportHeight;
         if(baseWidth<=0 || ZoomLevel==1)baseWidth=viewport;
+        if(baseHeight<=0 || ZoomLevel==1)baseHeight=Math.Max(88,viewportHeight);
         int desired=Math.Max(20,baseWidth*Math.Max(1,ZoomLevel));
         if(Width!=desired)Width=desired;
-        if(Parent!=null && Height!=Parent.ClientSize.Height)Height=Parent.ClientSize.Height;
+        int desiredHeight=Math.Max(20,baseHeight*Math.Max(1,ZoomLevel));
+        if(Height!=desiredHeight)Height=desiredHeight;
         double total=Math.Max(1,(fullEnd-fullStart).TotalSeconds),span=Math.Max(1,(viewEnd-viewStart).TotalSeconds);
         double travel=Math.Max(0,total-span),fraction=travel<=0?0:(viewStart-fullStart).TotalSeconds/travel;
         Left=-(int)Math.Round(Math.Max(0,Math.Min(1,fraction))*Math.Max(0,Width-viewport));
+        Top=-(int)Math.Round(Math.Max(0,Math.Min(1,verticalFraction))*Math.Max(0,Height-viewportHeight));
     }
     void SetView(int zoom,double centerFraction,bool notify) {
         ZoomLevel=Math.Max(1,Math.Min(8,zoom)); double total=Math.Max(1,(fullEnd-fullStart).TotalSeconds),span=total/ZoomLevel;
@@ -162,11 +166,12 @@ public sealed class TrackingHealthTimeline : Control {
         SyncScale();
         if(notify && ViewChanged!=null)ViewChanged(this,EventArgs.Empty); Invalidate();
     }
-    public void ZoomIn() { double center=(viewStart.AddTicks((viewEnd-viewStart).Ticks/2)-fullStart).TotalSeconds/Math.Max(1,(fullEnd-fullStart).TotalSeconds); SetView(ZoomLevel*2,center,true); }
-    public void ZoomOut() { double center=(viewStart.AddTicks((viewEnd-viewStart).Ticks/2)-fullStart).TotalSeconds/Math.Max(1,(fullEnd-fullStart).TotalSeconds); SetView(ZoomLevel/2,center,true); }
-    protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); int visibleLeft=ViewportLeft,viewport=ViewportWidth; double fraction=Math.Max(0,Math.Min(1,(e.X-visibleLeft-10)/(double)Math.Max(1,viewport-20))); Rectangle lane=new Rectangle(10,25,Math.Max(20,ClientSize.Width-20),18); DateTime anchor=fullStart.AddSeconds((fullEnd-fullStart).TotalSeconds*Math.Max(0,Math.Min(1,(e.X-lane.Left)/(double)Math.Max(1,lane.Width)))); int next=e.Delta>0?ZoomLevel*2:ZoomLevel/2; next=Math.Max(1,Math.Min(8,next)); double total=Math.Max(1,(fullEnd-fullStart).TotalSeconds),span=total/next; DateTime start=anchor.AddSeconds(-span*fraction); double center=(start.AddSeconds(span/2)-fullStart).TotalSeconds/total; SetView(next,center,true); }
-    protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); if(e.Button==MouseButtons.Left && ZoomLevel>1) { panning=true; panStartX=PointToScreen(e.Location).X; panStartViewStart=viewStart; panStartViewEnd=viewEnd; Capture=true; Cursor=Cursors.SizeWE; } }
-    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if(!panning)return; int screenX=PointToScreen(e.Location).X; double shift=-(screenX-panStartX)/(double)Math.Max(1,ViewportWidth)*(panStartViewEnd-panStartViewStart).TotalSeconds; DateTime start=panStartViewStart.AddSeconds(shift),end=panStartViewEnd.AddSeconds(shift); if(start<fullStart) { start=fullStart; end=start+(panStartViewEnd-panStartViewStart); } if(end>fullEnd) { end=fullEnd; start=end-(panStartViewEnd-panStartViewStart); } viewStart=start; viewEnd=end; SyncScale(); if(ViewChanged!=null)ViewChanged(this,EventArgs.Empty); Invalidate(); }
+    void FocusVertically(int zoom) { verticalFraction=zoom<=1?0:Math.Max(0,Math.Min(1,(34.0*zoom-ViewportHeight/2.0)/Math.Max(1,baseHeight*zoom-ViewportHeight))); }
+    public void ZoomIn() { double center=(viewStart.AddTicks((viewEnd-viewStart).Ticks/2)-fullStart).TotalSeconds/Math.Max(1,(fullEnd-fullStart).TotalSeconds); int next=Math.Min(8,ZoomLevel*2); FocusVertically(next); SetView(next,center,true); }
+    public void ZoomOut() { double center=(viewStart.AddTicks((viewEnd-viewStart).Ticks/2)-fullStart).TotalSeconds/Math.Max(1,(fullEnd-fullStart).TotalSeconds); int next=Math.Max(1,ZoomLevel/2); FocusVertically(next); SetView(next,center,true); }
+    protected override void OnMouseWheel(MouseEventArgs e) { base.OnMouseWheel(e); int visibleLeft=Math.Max(0,-Left),viewport=ViewportWidth; double fraction=Math.Max(0,Math.Min(1,(e.X-visibleLeft-10*ZoomLevel)/(double)Math.Max(1,viewport-20*ZoomLevel))); Rectangle lane=new Rectangle(10*ZoomLevel,25*ZoomLevel,Math.Max(20,ClientSize.Width-20*ZoomLevel),18*ZoomLevel); DateTime anchor=fullStart.AddSeconds((fullEnd-fullStart).TotalSeconds*Math.Max(0,Math.Min(1,(e.X-lane.Left)/(double)Math.Max(1,lane.Width)))); int next=e.Delta>0?ZoomLevel*2:ZoomLevel/2; next=Math.Max(1,Math.Min(8,next)); double total=Math.Max(1,(fullEnd-fullStart).TotalSeconds),span=total/next; DateTime start=anchor.AddSeconds(-span*fraction); double center=(start.AddSeconds(span/2)-fullStart).TotalSeconds/total; FocusVertically(next); SetView(next,center,true); }
+    protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); if(e.Button==MouseButtons.Left && ZoomLevel>1) { Point screen=PointToScreen(e.Location); panning=true; panStartX=screen.X; panStartY=screen.Y; panStartTop=Top; panStartViewStart=viewStart; panStartViewEnd=viewEnd; Capture=true; Cursor=Cursors.SizeAll; } }
+    protected override void OnMouseMove(MouseEventArgs e) { base.OnMouseMove(e); if(!panning)return; Point screen=PointToScreen(e.Location); double shift=-(screen.X-panStartX)/(double)Math.Max(1,ViewportWidth)*(panStartViewEnd-panStartViewStart).TotalSeconds; DateTime start=panStartViewStart.AddSeconds(shift),end=panStartViewEnd.AddSeconds(shift); if(start<fullStart) { start=fullStart; end=start+(panStartViewEnd-panStartViewStart); } if(end>fullEnd) { end=fullEnd; start=end-(panStartViewEnd-panStartViewStart); } viewStart=start; viewEnd=end; int maxTop=Math.Max(0,Height-ViewportHeight),wantedTop=Math.Max(-maxTop,Math.Min(0,panStartTop+screen.Y-panStartY)); verticalFraction=maxTop<=0?0:-wantedTop/(double)maxTop; SyncScale(); if(ViewChanged!=null)ViewChanged(this,EventArgs.Empty); Invalidate(); }
     protected override void OnMouseUp(MouseEventArgs e) { base.OnMouseUp(e); if(!panning)return; panning=false; Capture=false; Cursor=Cursors.Hand; }
     static GraphicsPath RoundPath(Rectangle rectangle,int radius) {
         GraphicsPath path=new GraphicsPath();
@@ -181,18 +186,20 @@ public sealed class TrackingHealthTimeline : Control {
         if(rectangle.Width<=0 || rectangle.Height<=0)return;
         using(GraphicsPath path=RoundPath(rectangle,radius))graphics.FillPath(brush,path);
     }
-    void DrawLegend(Graphics graphics,string label,Color color,int x,int y) {
-        using(Brush brush=new SolidBrush(color))graphics.FillEllipse(brush,x,y+3,8,8);
-        TextRenderer.DrawText(graphics,label,Font,new Point(x+12,y),PaceTheme.Muted,TextFormatFlags.NoPadding);
+    void DrawLegend(Graphics graphics,string label,Color color,int x,int y,int scale,Font font) {
+        using(Brush brush=new SolidBrush(color))graphics.FillEllipse(brush,x,y+3*scale,8*scale,8*scale);
+        TextRenderer.DrawText(graphics,label,font,new Point(x+12*scale,y),PaceTheme.Muted,TextFormatFlags.NoPadding);
     }
     protected override void OnPaint(PaintEventArgs e) {
         base.OnPaint(e); e.Graphics.SmoothingMode=SmoothingMode.AntiAlias;
-        Color ink=PaceTheme.Text,muted=PaceTheme.Muted; int viewportLeft=ViewportLeft,viewportWidth=ViewportWidth;
-        using(Font heading=new Font("Segoe UI Semibold",9))TextRenderer.DrawText(e.Graphics,day==DateTime.Today?"TODAY'S TRACKING":day.ToString("ddd, MMM d").ToUpperInvariant(),heading,new Point(viewportLeft+10,3),ink,TextFormatFlags.NoPadding);
-        TextRenderer.DrawText(e.Graphics,Duration(TrackedSeconds)+" tracked",Font,new Rectangle(viewportLeft+150,3,viewportWidth-160,18),muted,TextFormatFlags.Right|TextFormatFlags.NoPadding);
-        Rectangle lane=new Rectangle(10,25,Math.Max(20,ClientSize.Width-20),18);
-        using(Brush brush=new SolidBrush(Empty))FillRound(e.Graphics,brush,lane,8);
-        GraphicsState laneState=e.Graphics.Save(); using(GraphicsPath lanePath=RoundPath(lane,8))e.Graphics.SetClip(lanePath);
+        Color ink=PaceTheme.Text,muted=PaceTheme.Muted; int scale=Math.Max(1,ZoomLevel),logicalWidth=Math.Max(20,baseWidth);
+        using(Font scaledFont=new Font(Font.FontFamily,Font.Size*scale,Font.Style))
+        using(Font heading=new Font("Segoe UI Semibold",9*scale)) {
+        TextRenderer.DrawText(e.Graphics,day==DateTime.Today?"TODAY'S TRACKING":day.ToString("ddd, MMM d").ToUpperInvariant(),heading,new Point(10*scale,3*scale),ink,TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(e.Graphics,Duration(TrackedSeconds)+" tracked",scaledFont,new Rectangle(150*scale,3*scale,Math.Max(20,(logicalWidth-160)*scale),18*scale),muted,TextFormatFlags.Right|TextFormatFlags.NoPadding);
+        Rectangle lane=new Rectangle(10*scale,25*scale,Math.Max(20,(logicalWidth-20)*scale),18*scale);
+        using(Brush brush=new SolidBrush(Empty))FillRound(e.Graphics,brush,lane,8*scale);
+        GraphicsState laneState=e.Graphics.Save(); using(GraphicsPath lanePath=RoundPath(lane,8*scale))e.Graphics.SetClip(lanePath);
         foreach(Slice slice in slices)if(slice.Kind!="Gap") {
             int left=TimeX(slice.Start,lane),right=TimeX(slice.End,lane);
             Rectangle block=new Rectangle(left,lane.Top,Math.Max(2,right-left),lane.Height);
@@ -206,22 +213,23 @@ public sealed class TrackingHealthTimeline : Control {
         }
         e.Graphics.Restore(laneState);
         if(now>=fullStart && now<=fullEnd && day==DateTime.Today) {
-            int currentX=TimeX(now,lane); using(Pen pen=new Pen(ink,2))e.Graphics.DrawLine(pen,currentX,lane.Top-3,currentX,lane.Bottom+3);
+            int currentX=TimeX(now,lane); using(Pen pen=new Pen(ink,2*scale))e.Graphics.DrawLine(pen,currentX,lane.Top-3*scale,currentX,lane.Bottom+3*scale);
         }
-        int divisions=4*Math.Max(1,ZoomLevel);
+        int divisions=4;
         for(int i=0;i<=divisions;i++) {
             DateTime labelTime=fullStart.AddTicks((long)((fullEnd-fullStart).Ticks*i/(double)divisions)); string label=labelTime.ToString("h:mmtt").ToLowerInvariant();
-            int x=lane.Left+(int)Math.Round(lane.Width*i/(double)divisions),width=52;
+            int x=lane.Left+(int)Math.Round(lane.Width*i/(double)divisions),width=52*scale;
             if(i==0)x=lane.Left; else if(i==divisions)x=lane.Right-width; else x-=width/2;
-            TextRenderer.DrawText(e.Graphics,label,Font,new Rectangle(x,47,width,15),muted,TextFormatFlags.HorizontalCenter|TextFormatFlags.NoPadding);
+            TextRenderer.DrawText(e.Graphics,label,scaledFont,new Rectangle(x,47*scale,width,15*scale),muted,TextFormatFlags.HorizontalCenter|TextFormatFlags.NoPadding);
         }
-        int legendY=Math.Max(63,ClientSize.Height-18);
-        DrawLegend(e.Graphics,"Tracked",tracked,viewportLeft+10,legendY);
-        DrawLegend(e.Graphics,"Paused",manualPaused,viewportLeft+88,legendY);
-        DrawLegend(e.Graphics,"Break",breakColor,viewportLeft+160,legendY);
-        DrawLegend(e.Graphics,"Offscreen activity",offscreen,viewportLeft+222,legendY);
-        DrawLegend(e.Graphics,"Locked / sleep",locked,viewportLeft+350,legendY);
-        DrawLegend(e.Graphics,"Not tracked",gap,viewportLeft+462,legendY);
-        DrawLegend(e.Graphics,"No timeline data",Empty,viewportLeft+565,legendY);
+        int legendY=Math.Max(63,baseHeight-18)*scale;
+        DrawLegend(e.Graphics,"Tracked",tracked,10*scale,legendY,scale,scaledFont);
+        DrawLegend(e.Graphics,"Paused",manualPaused,88*scale,legendY,scale,scaledFont);
+        DrawLegend(e.Graphics,"Break",breakColor,160*scale,legendY,scale,scaledFont);
+        DrawLegend(e.Graphics,"Offscreen activity",offscreen,222*scale,legendY,scale,scaledFont);
+        DrawLegend(e.Graphics,"Locked / sleep",locked,350*scale,legendY,scale,scaledFont);
+        DrawLegend(e.Graphics,"Not tracked",gap,462*scale,legendY,scale,scaledFont);
+        DrawLegend(e.Graphics,"No timeline data",Empty,565*scale,legendY,scale,scaledFont);
+        }
     }
 }
