@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.26.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.26.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.27.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.27.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -43,6 +43,8 @@ public class PlanChange {
 
 public class DayRecord {
     public string Date = "";
+    public string FirstUseAt = "";
+    public string LastUseAt = "";
     public double Used;
     public int Extra;
     public bool Warned, Exhausted, BreakEarned;
@@ -173,7 +175,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.26";
+    const string PaceVersion="0.2.27";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -564,7 +566,7 @@ public class ScreenTime : Form {
     Settings ReadState(string path) { using(var file=File.OpenRead(path))return (Settings)new XmlSerializer(typeof(Settings)).Deserialize(file); }
     void NormalizeState() {
         if(state==null || state.Weeks==null || state.Weeks.Exists(w=>w==null || w.Minutes==null || w.Minutes.Length!=7 || Array.Exists(w.Minutes,v=>v<0 || v>1440)) || state.Interval<1 || state.Interval>720 || state.BreakMinutes<1 || state.BreakMinutes>240 || state.PeriodicWrapMinutes<1 || state.PeriodicWrapMinutes>120 || state.ClosingWarningMinutes<1 || state.ClosingWarningMinutes>240 || state.MismatchGraceMinutes<1 || state.MismatchGraceMinutes>60 || state.MismatchSnoozeMinutes<1 || state.MismatchSnoozeMinutes>240 || state.InactivityWarningMinutes<1 || state.InactivityWarningMinutes>720 || state.InactivityOffscreenMinutes<1 || state.InactivityOffscreenMinutes>240 || state.Days==null)throw new InvalidDataException();
-        foreach(DayRecord savedDay in state.Days) { if(savedDay==null)throw new InvalidDataException(); savedDay.Used=Math.Max(0,savedDay.Used); savedDay.Extra=Math.Max(0,savedDay.Extra); savedDay.ExtraUsed=Math.Max(0,Math.Min(savedDay.Extra*60,savedDay.ExtraUsed)); savedDay.BlockUsed=Math.Max(0,savedDay.BlockUsed); savedDay.SinceReminder=Math.Max(0,savedDay.SinceReminder); savedDay.BreaksTaken=Math.Max(0,savedDay.BreaksTaken); if(savedDay.ActiveReason==null)savedDay.ActiveReason=""; if(savedDay.Reasons==null)savedDay.Reasons=new List<string>(); if(savedDay.Activities==null)savedDay.Activities=new List<ActivityRecord>(); savedDay.Activities.RemoveAll(a=>a==null || string.IsNullOrWhiteSpace(a.Name) || a.Seconds<0); foreach(ActivityRecord savedActivity in savedDay.Activities)if(string.IsNullOrEmpty(savedActivity.Category))savedActivity.Category=ActivityCategoryForLoaded(savedActivity.Name); if(savedDay.BlockActivities==null)savedDay.BlockActivities=new List<BlockActivityRecord>(); savedDay.BlockActivities.RemoveAll(a=>a==null || string.IsNullOrWhiteSpace(a.BlockKey) || string.IsNullOrWhiteSpace(a.BlockName) || string.IsNullOrWhiteSpace(a.Activity) || a.Seconds<0); }
+        foreach(DayRecord savedDay in state.Days) { if(savedDay==null)throw new InvalidDataException(); savedDay.Used=Math.Max(0,savedDay.Used); savedDay.Extra=Math.Max(0,savedDay.Extra); savedDay.ExtraUsed=Math.Max(0,Math.Min(savedDay.Extra*60,savedDay.ExtraUsed)); savedDay.BlockUsed=Math.Max(0,savedDay.BlockUsed); savedDay.SinceReminder=Math.Max(0,savedDay.SinceReminder); savedDay.BreaksTaken=Math.Max(0,savedDay.BreaksTaken); if(savedDay.FirstUseAt==null)savedDay.FirstUseAt=""; if(savedDay.LastUseAt==null)savedDay.LastUseAt=""; if(savedDay.ActiveReason==null)savedDay.ActiveReason=""; if(savedDay.Reasons==null)savedDay.Reasons=new List<string>(); if(savedDay.Activities==null)savedDay.Activities=new List<ActivityRecord>(); savedDay.Activities.RemoveAll(a=>a==null || string.IsNullOrWhiteSpace(a.Name) || a.Seconds<0); foreach(ActivityRecord savedActivity in savedDay.Activities)if(string.IsNullOrEmpty(savedActivity.Category))savedActivity.Category=ActivityCategoryForLoaded(savedActivity.Name); if(savedDay.BlockActivities==null)savedDay.BlockActivities=new List<BlockActivityRecord>(); savedDay.BlockActivities.RemoveAll(a=>a==null || string.IsNullOrWhiteSpace(a.BlockKey) || string.IsNullOrWhiteSpace(a.BlockName) || string.IsNullOrWhiteSpace(a.Activity) || a.Seconds<0); }
         if(state.PlanChanges==null)state.PlanChanges=new List<PlanChange>(); if(state.Blocks==null)state.Blocks=new List<AdvancedBlock>();
         if(state.TrackingEvents==null)state.TrackingEvents=new List<TrackingEventRecord>();
         state.TrackingEvents.RemoveAll(e=>!ValidTrackingEvent(e));
@@ -863,6 +865,7 @@ public class ScreenTime : Form {
                 day.ActiveBlock="extra"; day.ExtraUsed+=elapsed; day.Used+=elapsed;
             } else if(!UsingAdvancedPlan)day.Used+=elapsed;
             else tracking=false;
+            if(tracking && elapsed>0)MarkComputerUse(elapsed);
             if(tracking && !cleanupActive && !state.DoNotDisturb)day.SinceReminder+=elapsed;
             double left=Budget-CurrentUsed;
             if(UsingAdvancedPlan && active!=null) {
@@ -874,6 +877,12 @@ public class ScreenTime : Form {
             else if(tracking && !state.DoNotDisturb && !cleanupActive && day.SinceReminder>=state.Interval*60) { day.SinceReminder=0; BeginPeriodicCleanup(); }
         }
         if(breakFinished) { day.BreakEarned=true; day.SinceReminder=0; PlayAlert(); Save(); }
+    }
+    void MarkComputerUse(double elapsed) {
+        DateTime end=DateTime.Now,start=end.AddSeconds(-Math.Max(0,elapsed)),saved;
+        if(string.IsNullOrWhiteSpace(day.FirstUseAt)) { if(day.Used>elapsed)start=end.AddSeconds(-day.Used); day.FirstUseAt=TrackingTime(start<end.Date?end.Date:start); }
+        else if(DateTime.TryParse(day.FirstUseAt,out saved) && start<saved)day.FirstUseAt=TrackingTime(start<end.Date?end.Date:start);
+        day.LastUseAt=TrackingTime(end);
     }
     void BeginPeriodicCleanup() {
         if(state.DoNotDisturb)return;
@@ -1004,11 +1013,23 @@ public class ScreenTime : Form {
     }
     DateTime EarliestTrackingDate() { DateTime earliest=DateTime.Today; bool found=false; foreach(TrackingEventRecord item in state.TrackingEvents) { DateTime start; if(item!=null && DateTime.TryParse(item.Start,out start) && (!found || start.Date<earliest)) { earliest=start.Date; found=true; } } return found?earliest:DateTime.Today; }
     bool TrackingEventOnDay(TrackingEventRecord item,DateTime date) { DateTime start,end; if(item==null || !DateTime.TryParse(item.Start,out start))return false; if(item.Kind!="Gap")return start.Date==date.Date; return DateTime.TryParse(item.End,out end) && start<date.Date.AddDays(1) && end>date.Date; }
+    void TrackingUseBounds(DateTime date,bool today,out DateTime? firstUse,out DateTime? lastUse) {
+        firstUse=null; lastUse=null; DayRecord record=state.Days.Find(d=>d.Date==date.ToString("yyyy-MM-dd"));
+        if(record==null) { DateTime earliest=DateTime.MaxValue,latest=DateTime.MinValue; foreach(TrackingEventRecord item in state.TrackingEvents) { DateTime at; if(item==null || !DateTime.TryParse(item.Start,out at) || at.Date!=date.Date)continue; if((item.Kind=="Started" || item.Kind=="Unlocked" || item.Kind=="Wake" || item.Kind=="Resumed") && at<earliest)earliest=at; if((item.Kind=="Stopped" || item.Kind=="Locked" || item.Kind=="Sleep" || item.Kind=="Paused" || item.Kind=="BreakStarted" || item.Kind=="OffscreenStarted") && at>latest)latest=at; } firstUse=earliest==DateTime.MaxValue?(DateTime?)null:earliest; lastUse=latest==DateTime.MinValue?(DateTime?)null:latest; if(firstUse==null && today)firstUse=DateTime.Now; if(!today && firstUse!=null && lastUse==null)lastUse=firstUse; return; }
+        DateTime parsed; if(DateTime.TryParse(record.FirstUseAt,out parsed) && parsed.Date==date.Date)firstUse=parsed; if(DateTime.TryParse(record.LastUseAt,out parsed) && parsed.Date==date.Date)lastUse=parsed;
+        if(firstUse==null && record.Used>0) {
+            DateTime inferredEnd=today?DateTime.Now:date.Date.AddDays(1).AddTicks(-1); DateTime latest=DateTime.MinValue;
+            foreach(TrackingEventRecord item in state.TrackingEvents) { DateTime at; if(item==null || !DateTime.TryParse(item.Start,out at) || at.Date!=date.Date)continue; if(item.Kind=="Locked" || item.Kind=="Sleep" || item.Kind=="Paused" || item.Kind=="BreakStarted" || item.Kind=="OffscreenStarted" || item.Kind=="Stopped")if(at>latest)latest=at; }
+            if(!today && latest!=DateTime.MinValue)inferredEnd=latest; firstUse=inferredEnd.AddSeconds(-record.Used); if(firstUse.Value<date.Date)firstUse=date.Date; if(lastUse==null)lastUse=inferredEnd;
+        }
+        if(firstUse==null)firstUse=today?DateTime.Now:date.Date;
+        if(!today && lastUse==null)lastUse=firstUse;
+    }
     void ChangeTrackingHealthDay(int days) { DateTime earliest=EarliestTrackingDate(),target=trackingHealthDate.Date.AddDays(days); if(target<earliest)target=earliest; if(target>DateTime.Today)target=DateTime.Today; if(target==trackingHealthDate.Date)return; trackingHealthDate=target; RefreshTrackingHealth(); }
     void UpdateTrackingZoomControls() { if(trackingTimeline==null)return; trackingZoomLabel.Text=trackingTimeline.ZoomLevel+"x"; trackingZoomOut.Enabled=trackingTimeline.ZoomLevel>1; trackingZoomIn.Enabled=trackingTimeline.ZoomLevel<8; }
     void RefreshTrackingHealth() {
-        if(trackingEvents==null)return; bool startup=StartsWithWindows(),today=trackingHealthDate.Date==DateTime.Today; DateTime selected=trackingHealthDate.Date,displayNow=today?DateTime.Now:selected.AddDays(1).AddTicks(-1); double gapForDay=TrackingGapSecondsForDay(selected);
-        trackingTimeline.SetData(state.TrackingEvents,displayNow,today && state.TrackingSessionOpen,today && (sessionLocked||sessionSuspended),today && paused);
+        if(trackingEvents==null)return; bool startup=StartsWithWindows(),today=trackingHealthDate.Date==DateTime.Today; DateTime selected=trackingHealthDate.Date,displayNow=today?DateTime.Now:selected.AddDays(1).AddTicks(-1); double gapForDay=TrackingGapSecondsForDay(selected); DateTime? firstUse,lastUse; TrackingUseBounds(selected,today,out firstUse,out lastUse);
+        trackingTimeline.SetData(state.TrackingEvents,displayNow,today && state.TrackingSessionOpen,today && (sessionLocked||sessionSuspended),today && paused,firstUse,today?null:lastUse);
         trackingHealthTitle.Text=today?(saveFailed?"● Tracking, but not saving":"● Tracking now"):"Tracking history"; trackingHealthTitle.ForeColor=saveFailed && today?PaceTheme.Warning:green;
         trackingHealthDetail.Text=today?(saveFailed?"Pace cannot save its heartbeat or usage. Check the Pace data-folder permissions.":"The heartbeat is current. Screen-time tracking is active.")+(gapForDay>0?"  "+FormatDuration(gapForDay)+" was not tracked today.":"  No tracking gaps today."):selected.ToString("dddd, MMM d")+": "+FormatDuration(trackingTimeline.TrackedSeconds)+" tracked, "+FormatDuration(trackingTimeline.BreakSeconds)+" break, "+FormatDuration(trackingTimeline.OffscreenSeconds)+" offscreen, "+FormatDuration(trackingTimeline.ManualPausedSeconds+trackingTimeline.PausedSeconds)+" other paused"+(gapForDay>0?", "+FormatDuration(gapForDay)+" not tracked.":", no tracking gaps.");
         trackingLaunchStatus.Text=startup?"Launch at sign-in is on, so Pace can begin with Windows.":"Launch at sign-in is off. Pace cannot track until you open it."; trackingLaunchStatus.ForeColor=startup?PaceTheme.Muted:PaceTheme.Warning; enableStartup.Visible=!startup;

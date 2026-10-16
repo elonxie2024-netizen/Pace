@@ -152,6 +152,12 @@ try {
     $hoverCanceled=New-Object Windows.Forms.MouseEventArgs ([Windows.Forms.MouseButtons]::None),0,555,50,0; $timelineMouse.Invoke($timelineModel,@($hoverCanceled.PSObject.BaseObject))
     Assert ($hoverTip.GetToolTip($timelineModel) -like 'Break canceled*') 'Hovering over a cancellation line must identify the break event'
     Assert ($timelineModel.RangeStart -eq [datetime]::Today.AddHours(1) -and $timelineModel.RangeEnd -eq $timelineNow) 'The tracking bar must begin at the first recorded computer activity instead of midnight'
+    $carryRecords=New-Object 'System.Collections.Generic.List[TrackingEventRecord]'; $carryRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=[datetime]::Today.AddDays(-1).AddHours(20).ToString('o') }))
+    $currentFirstUse=[datetime]::Today.AddHours(9); $timelineModel.SetData($carryRecords,[datetime]::Today.AddHours(12),$true,$false,$false,$currentFirstUse,$null)
+    Assert ($timelineModel.RangeStart -eq $currentFirstUse -and $timelineModel.RangeEnd -eq [datetime]::Today.AddHours(12)) 'An overnight open tracking session must crop today to the first actual computer use instead of midnight'
+    $pastDate=[datetime]::Today.AddDays(-2); $pastRecords=New-Object 'System.Collections.Generic.List[TrackingEventRecord]'; $pastRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=$pastDate.AddHours(7).ToString('o') })); $timelineModel.SetData($pastRecords,$pastDate.AddDays(1).AddTicks(-1),$false,$false,$false,$pastDate.AddHours(8),$pastDate.AddHours(18))
+    Assert ($timelineModel.RangeStart -eq $pastDate.AddHours(8) -and $timelineModel.RangeEnd -eq $pastDate.AddHours(18)) 'A completed day must retroactively crop its right edge to the final detected use instead of midnight'
+    $timelineModel.SetData($timelineRecords,$timelineNow,$true,$false,$false)
     $fullTimelineSpan=($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds; $fullTimelineWidth=$timelineModel.Width; $fullTimelineHeight=$timelineModel.Height; $timelineModel.ZoomIn()
     Assert ($timelineModel.ZoomLevel -eq 2 -and $timelineModel.Width -eq 2*$fullTimelineWidth -and $timelineModel.Height -eq 2*$fullTimelineHeight -and ($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds -lt $fullTimelineSpan) 'Tracking health must enlarge both dimensions of the complete timeline and show a shorter time window when zoomed in'
     $timelineModel.ZoomOut(); Assert ($timelineModel.ZoomLevel -eq 1 -and $timelineModel.Width -eq $fullTimelineWidth -and $timelineModel.Height -eq $fullTimelineHeight -and [Math]::Abs(($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds-$fullTimelineSpan) -lt 1) 'Zooming out must restore the complete daily timeline and its original dimensions'
@@ -328,10 +334,11 @@ try {
     Assert (($toast.Controls | Where-Object { $_ -is [Windows.Forms.Button] } | Select-Object -First 1).Text -eq 'Open weekly plan') 'The weekly-plan reminder must open the planner instead of starting an unrelated break'
     $toast.Close()
 
-    $day.Used = 0
+    $day.Used = 0; $day.FirstUseAt=''; $day.LastUseAt=''
     $day.SinceReminder = 0
     Elapsed 60 $false
     Assert ($day.Used -eq 60) 'Unlocked time must accrue automatically'
+    Assert ([datetime]::Parse($day.FirstUseAt).Date -eq [datetime]::Today -and [datetime]::Parse($day.LastUseAt).Date -eq [datetime]::Today -and [datetime]::Parse($day.FirstUseAt).TimeOfDay -gt [timespan]::Zero) 'Actual computer use must save first-use and last-use bounds instead of defaulting the day to midnight'
     Assert ($day.SinceReminder -eq 60) 'Unlocked time must advance next-break countdown'
     Elapsed 60 $true
     Assert ($day.Used -eq 60) 'Locked time must not accrue'

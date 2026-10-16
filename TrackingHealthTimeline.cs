@@ -95,7 +95,8 @@ public sealed class TrackingHealthTimeline : Control {
         return minutes+"m";
     }
 
-    public void SetData(IEnumerable<TrackingEventRecord> records,DateTime current,bool trackingOpen,bool currentlySystemPaused,bool currentlyUserPaused) {
+    public void SetData(IEnumerable<TrackingEventRecord> records,DateTime current,bool trackingOpen,bool currentlySystemPaused,bool currentlyUserPaused) { SetData(records,current,trackingOpen,currentlySystemPaused,currentlyUserPaused,null,null); }
+    public void SetData(IEnumerable<TrackingEventRecord> records,DateTime current,bool trackingOpen,bool currentlySystemPaused,bool currentlyUserPaused,DateTime? activityStart,DateTime? activityEnd) {
         bool sameDay=day==current.Date; DateTime oldFullStart=fullStart,oldFullEnd=fullEnd,oldViewStart=viewStart,oldViewEnd=viewEnd;
         now=current; day=current.Date; DateTime endOfDay=day.AddDays(1),visibleEnd=current<endOfDay?current:endOfDay;
         slices.Clear(); markers.Clear(); hoveredSlice=null; hoveredMarker=null; hoverTip.Hide(this); TrackedSeconds=0; PausedSeconds=0; ManualPausedSeconds=0; BreakSeconds=0; OffscreenSeconds=0; GapSeconds=0; BreakCanceledMarkers=0; BreakEndedEarlyMarkers=0;
@@ -136,7 +137,13 @@ public sealed class TrackingHealthTimeline : Control {
         foreach(KeyValuePair<DateTime,TrackingEventRecord> point in points)if(point.Key>=day && point.Key<visibleEnd && point.Key<first)first=point.Key;
         if(first==DateTime.MaxValue)foreach(Slice item in gaps)if(item.Start>=day && item.Start<visibleEnd && item.Start<first)first=item.Start;
         if(first==DateTime.MaxValue)foreach(Slice item in slices)if(item.Start<first)first=item.Start;
-        fullEnd=visibleEnd; fullStart=first==DateTime.MaxValue?day:first;
+        DateTime requestedStart=activityStart.HasValue && activityStart.Value.Date==day?activityStart.Value:first==DateTime.MaxValue?day:first;
+        DateTime requestedEnd=activityEnd.HasValue && activityEnd.Value.Date==day?activityEnd.Value:visibleEnd;
+        if(requestedStart<day)requestedStart=day; if(requestedEnd>visibleEnd)requestedEnd=visibleEnd; if(requestedEnd<requestedStart)requestedEnd=requestedStart;
+        List<Slice> cropped=new List<Slice>(); foreach(Slice item in slices) { DateTime clippedStart=item.Start>requestedStart?item.Start:requestedStart,clippedEnd=item.End<requestedEnd?item.End:requestedEnd; if(clippedEnd<=clippedStart)continue; if(cropped.Count>0 && cropped[cropped.Count-1].Kind==item.Kind && cropped[cropped.Count-1].End==clippedStart)cropped[cropped.Count-1].End=clippedEnd; else cropped.Add(new Slice { Start=clippedStart,End=clippedEnd,Kind=item.Kind }); }
+        slices.Clear(); TrackedSeconds=0; PausedSeconds=0; ManualPausedSeconds=0; BreakSeconds=0; OffscreenSeconds=0; GapSeconds=0; foreach(Slice item in cropped)AddSlice(item.Start,item.End,item.Kind);
+        markers.RemoveAll(delegate(Marker marker) { return marker.At<requestedStart || marker.At>requestedEnd; }); BreakCanceledMarkers=markers.FindAll(delegate(Marker marker) { return marker.Kind=="BreakCanceled"; }).Count; BreakEndedEarlyMarkers=markers.Count-BreakCanceledMarkers;
+        fullEnd=requestedEnd; fullStart=requestedStart;
         if(fullEnd<=fullStart)fullStart=fullEnd.AddMinutes(-1)>day?fullEnd.AddMinutes(-1):day;
         if(!sameDay)ZoomLevel=1;
         if(ZoomLevel<=1 || oldFullEnd<=oldFullStart) { ZoomLevel=1; viewStart=fullStart; viewEnd=fullEnd; }
