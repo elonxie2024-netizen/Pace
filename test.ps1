@@ -121,6 +121,7 @@ try {
     Assert (($state.TrackingEvents | Where-Object { $_.Kind -eq 'Gap' -and $_.Detail -like '*was closed*' }).Count -eq 1) 'A deliberate exit must be distinguished from an unexpected tracking gap'
     $state.TrackingSessionOpen = $true; Call 'Heartbeat'
     Call 'RefreshTrackingHealth'; Call 'RefreshHistory'
+    Assert ((Field 'trackingHealthDetail').Text -like 'Today:*used*break*offscreen activity*') 'Today must show separate used, break, and offscreen-activity totals'
     Assert (@((Field 'trackingEvents').Items | Where-Object { $_ -like '*NOT TRACKED*' }).Count -eq 2) 'Tracking health must list untracked intervals explicitly'
     Assert (@((Field 'history').Items | Where-Object { $_ -like '*not tracked*' }).Count -ge 1) 'Daily history must disclose tracking gaps instead of presenting incomplete data as complete'
     Assert ((Field 'trackingLaunchStatus').Text -like 'Launch at sign-in*') 'Tracking health must report whether launch at sign-in is working'
@@ -155,8 +156,9 @@ try {
     $carryRecords=New-Object 'System.Collections.Generic.List[TrackingEventRecord]'; $carryRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=[datetime]::Today.AddDays(-1).AddHours(20).ToString('o') }))
     $currentFirstUse=[datetime]::Today.AddHours(9); $timelineModel.SetData($carryRecords,[datetime]::Today.AddHours(12),$true,$false,$false,$currentFirstUse,$null)
     Assert ($timelineModel.RangeStart -eq $currentFirstUse -and $timelineModel.RangeEnd -eq [datetime]::Today.AddHours(12)) 'An overnight open tracking session must crop today to the first actual computer use instead of midnight'
-    $pastDate=[datetime]::Today.AddDays(-2); $pastRecords=New-Object 'System.Collections.Generic.List[TrackingEventRecord]'; $pastRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=$pastDate.AddHours(7).ToString('o') })); $timelineModel.SetData($pastRecords,$pastDate.AddDays(1).AddTicks(-1),$false,$false,$false,$pastDate.AddHours(8),$pastDate.AddHours(18))
+    $pastDate=[datetime]::Today.AddDays(-2); $pastRecords=New-Object 'System.Collections.Generic.List[TrackingEventRecord]'; $pastRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=$pastDate.AddHours(7).ToString('o') })); $pastRecords.Add((New-Object TrackingEventRecord -Property @{ Kind='OffscreenStarted'; Start=$pastDate.AddHours(18).ToString('o') })); $timelineModel.SetData($pastRecords,$pastDate.AddDays(1).AddTicks(-1),$false,$false,$false,$pastDate.AddHours(8),$pastDate.AddHours(18))
     Assert ($timelineModel.RangeStart -eq $pastDate.AddHours(8) -and $timelineModel.RangeEnd -eq $pastDate.AddHours(18)) 'A completed day must retroactively crop its right edge to the final detected use instead of midnight'
+    Assert ($timelineModel.OffscreenSeconds -eq 0 -and [Math]::Abs($timelineModel.DailyOffscreenSeconds-21600) -lt 1 -and $timelineModel.DailyBreakSeconds -eq 0) 'A cropped day summary must count later offscreen activity through midnight without treating it as break time'
     $timelineModel.SetData($timelineRecords,$timelineNow,$true,$false,$false)
     $fullTimelineSpan=($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds; $fullTimelineWidth=$timelineModel.Width; $fullTimelineHeight=$timelineModel.Height; $timelineModel.ZoomIn()
     Assert ($timelineModel.ZoomLevel -eq 2 -and $timelineModel.Width -eq 2*$fullTimelineWidth -and $timelineModel.Height -eq 2*$fullTimelineHeight -and ($timelineModel.VisibleEnd-$timelineModel.VisibleStart).TotalSeconds -lt $fullTimelineSpan) 'Tracking health must enlarge both dimensions of the complete timeline and show a shorter time window when zoomed in'
@@ -172,6 +174,7 @@ try {
     $navDate=[datetime]::Today.AddDays(-1); $navStart=New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=$navDate.AddHours(8).ToString('o'); Detail='Previous day start.' }; $navStop=New-Object TrackingEventRecord -Property @{ Kind='Stopped'; Start=$navDate.AddHours(10).ToString('o'); Detail='Previous day stop.' }; $state.TrackingEvents.Add($navStart); $state.TrackingEvents.Add($navStop)
     $app.GetType().GetMethod('ChangeTrackingHealthDay',$flags).Invoke($app,@(-1))
     Assert ((Field 'trackingHealthDate') -eq $navDate -and (Field 'trackingDayLabel').Text -eq $navDate.ToString('ddd, MMM d') -and (Field 'trackingNextDay').Enabled) 'Tracking-health arrows must navigate to a previous day and enable the return arrow'
+    Assert ((Field 'trackingHealthDetail').Text -like ($navDate.ToString('dddd, MMM d')+'*used*break*offscreen activity*')) 'Every previous day must use the same separate used, break, and offscreen-activity summary'
     Assert ((Field 'trackingTimeline').RangeStart -eq $navDate.AddHours(8) -and @((Field 'trackingEvents').Items | Where-Object { $_ -like '*Previous day*' }).Count -eq 2) 'Day navigation must show only that day and begin its bar at the first activity'
     $app.GetType().GetMethod('ChangeTrackingHealthDay',$flags).Invoke($app,@(1))
     Assert ((Field 'trackingHealthDate') -eq [datetime]::Today -and -not (Field 'trackingNextDay').Enabled) 'The next-day arrow must return to today and stop there'

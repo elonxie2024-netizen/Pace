@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.27.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.27.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.28.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.28.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -175,7 +175,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.27";
+    const string PaceVersion="0.2.28";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -1031,7 +1031,8 @@ public class ScreenTime : Form {
         if(trackingEvents==null)return; bool startup=StartsWithWindows(),today=trackingHealthDate.Date==DateTime.Today; DateTime selected=trackingHealthDate.Date,displayNow=today?DateTime.Now:selected.AddDays(1).AddTicks(-1); double gapForDay=TrackingGapSecondsForDay(selected); DateTime? firstUse,lastUse; TrackingUseBounds(selected,today,out firstUse,out lastUse);
         trackingTimeline.SetData(state.TrackingEvents,displayNow,today && state.TrackingSessionOpen,today && (sessionLocked||sessionSuspended),today && paused,firstUse,today?null:lastUse);
         trackingHealthTitle.Text=today?(saveFailed?"● Tracking, but not saving":"● Tracking now"):"Tracking history"; trackingHealthTitle.ForeColor=saveFailed && today?PaceTheme.Warning:green;
-        trackingHealthDetail.Text=today?(saveFailed?"Pace cannot save its heartbeat or usage. Check the Pace data-folder permissions.":"The heartbeat is current. Screen-time tracking is active.")+(gapForDay>0?"  "+FormatDuration(gapForDay)+" was not tracked today.":"  No tracking gaps today."):selected.ToString("dddd, MMM d")+": "+FormatDuration(trackingTimeline.TrackedSeconds)+" tracked, "+FormatDuration(trackingTimeline.BreakSeconds)+" break, "+FormatDuration(trackingTimeline.OffscreenSeconds)+" offscreen, "+FormatDuration(trackingTimeline.ManualPausedSeconds+trackingTimeline.PausedSeconds)+" other paused"+(gapForDay>0?", "+FormatDuration(gapForDay)+" not tracked.":", no tracking gaps.");
+        string daySummary=(today?"Today":selected.ToString("dddd, MMM d"))+": "+FormatDuration(trackingTimeline.TrackedSeconds)+" used  ·  "+FormatDuration(trackingTimeline.DailyBreakSeconds)+" break  ·  "+FormatDuration(trackingTimeline.DailyOffscreenSeconds)+" offscreen activity";
+        string healthNote=saveFailed && today?"Pace cannot save its heartbeat or usage.":gapForDay>0?FormatDuration(gapForDay)+" was not tracked.":"No tracking gaps."; trackingHealthDetail.Text=daySummary+"\r\n"+healthNote;
         trackingLaunchStatus.Text=startup?"Launch at sign-in is on, so Pace can begin with Windows.":"Launch at sign-in is off. Pace cannot track until you open it."; trackingLaunchStatus.ForeColor=startup?PaceTheme.Muted:PaceTheme.Warning; enableStartup.Visible=!startup;
         trackingDayLabel.Text=today?"Today":selected.ToString("ddd, MMM d"); trackingPreviousDay.Enabled=selected>EarliestTrackingDate(); trackingNextDay.Enabled=!today; UpdateTrackingZoomControls();
         trackingEvents.BeginUpdate(); trackingEvents.Items.Clear();

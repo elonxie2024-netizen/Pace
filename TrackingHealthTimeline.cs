@@ -45,6 +45,8 @@ public sealed class TrackingHealthTimeline : Control {
     public double ManualPausedSeconds { get; private set; }
     public double BreakSeconds { get; private set; }
     public double OffscreenSeconds { get; private set; }
+    public double DailyBreakSeconds { get; private set; }
+    public double DailyOffscreenSeconds { get; private set; }
     public double GapSeconds { get; private set; }
     public int BreakCanceledMarkers { get; private set; }
     public int BreakEndedEarlyMarkers { get; private set; }
@@ -99,7 +101,7 @@ public sealed class TrackingHealthTimeline : Control {
     public void SetData(IEnumerable<TrackingEventRecord> records,DateTime current,bool trackingOpen,bool currentlySystemPaused,bool currentlyUserPaused,DateTime? activityStart,DateTime? activityEnd) {
         bool sameDay=day==current.Date; DateTime oldFullStart=fullStart,oldFullEnd=fullEnd,oldViewStart=viewStart,oldViewEnd=viewEnd;
         now=current; day=current.Date; DateTime endOfDay=day.AddDays(1),visibleEnd=current<endOfDay?current:endOfDay;
-        slices.Clear(); markers.Clear(); hoveredSlice=null; hoveredMarker=null; hoverTip.Hide(this); TrackedSeconds=0; PausedSeconds=0; ManualPausedSeconds=0; BreakSeconds=0; OffscreenSeconds=0; GapSeconds=0; BreakCanceledMarkers=0; BreakEndedEarlyMarkers=0;
+        slices.Clear(); markers.Clear(); hoveredSlice=null; hoveredMarker=null; hoverTip.Hide(this); TrackedSeconds=0; PausedSeconds=0; ManualPausedSeconds=0; BreakSeconds=0; OffscreenSeconds=0; DailyBreakSeconds=0; DailyOffscreenSeconds=0; GapSeconds=0; BreakCanceledMarkers=0; BreakEndedEarlyMarkers=0;
         List<KeyValuePair<DateTime,TrackingEventRecord>> points=new List<KeyValuePair<DateTime,TrackingEventRecord>>();
         List<Slice> gaps=new List<Slice>();
         if(records!=null)foreach(TrackingEventRecord item in records) {
@@ -140,6 +142,7 @@ public sealed class TrackingHealthTimeline : Control {
         DateTime requestedStart=activityStart.HasValue && activityStart.Value.Date==day?activityStart.Value:first==DateTime.MaxValue?day:first;
         DateTime requestedEnd=activityEnd.HasValue && activityEnd.Value.Date==day?activityEnd.Value:visibleEnd;
         if(requestedStart<day)requestedStart=day; if(requestedEnd>visibleEnd)requestedEnd=visibleEnd; if(requestedEnd<requestedStart)requestedEnd=requestedStart;
+        foreach(Slice item in slices) { DateTime summaryStart=item.Start>requestedStart?item.Start:requestedStart,summaryEnd=item.End<visibleEnd?item.End:visibleEnd; if(summaryEnd<=summaryStart)continue; if(item.Kind=="Break")DailyBreakSeconds+=(summaryEnd-summaryStart).TotalSeconds; else if(item.Kind=="Offscreen")DailyOffscreenSeconds+=(summaryEnd-summaryStart).TotalSeconds; }
         List<Slice> cropped=new List<Slice>(); foreach(Slice item in slices) { DateTime clippedStart=item.Start>requestedStart?item.Start:requestedStart,clippedEnd=item.End<requestedEnd?item.End:requestedEnd; if(clippedEnd<=clippedStart)continue; if(cropped.Count>0 && cropped[cropped.Count-1].Kind==item.Kind && cropped[cropped.Count-1].End==clippedStart)cropped[cropped.Count-1].End=clippedEnd; else cropped.Add(new Slice { Start=clippedStart,End=clippedEnd,Kind=item.Kind }); }
         slices.Clear(); TrackedSeconds=0; PausedSeconds=0; ManualPausedSeconds=0; BreakSeconds=0; OffscreenSeconds=0; GapSeconds=0; foreach(Slice item in cropped)AddSlice(item.Start,item.End,item.Kind);
         markers.RemoveAll(delegate(Marker marker) { return marker.At<requestedStart || marker.At>requestedEnd; }); BreakCanceledMarkers=markers.FindAll(delegate(Marker marker) { return marker.Kind=="BreakCanceled"; }).Count; BreakEndedEarlyMarkers=markers.Count-BreakCanceledMarkers;
@@ -154,7 +157,7 @@ public sealed class TrackingHealthTimeline : Control {
         SyncScale();
         string dayName=day==DateTime.Today?"Today":day.ToString("ddd, MMM d");
         AccessibleName=dayName+" tracking timeline";
-        AccessibleDescription=dayName+": "+Duration(TrackedSeconds)+" tracked, "+Duration(BreakSeconds)+" break, "+Duration(OffscreenSeconds)+" offscreen activity, "+Duration(ManualPausedSeconds)+" manually paused, "+Duration(PausedSeconds)+" locked or asleep, "+Duration(GapSeconds)+" not tracked. Timeline begins at "+fullStart.ToString("h:mm tt")+". Zoom "+ZoomLevel+" times.";
+        AccessibleDescription=dayName+": "+Duration(TrackedSeconds)+" tracked, "+Duration(DailyBreakSeconds)+" break, "+Duration(DailyOffscreenSeconds)+" offscreen activity, "+Duration(ManualPausedSeconds)+" manually paused, "+Duration(PausedSeconds)+" locked or asleep, "+Duration(GapSeconds)+" not tracked. Timeline begins at "+fullStart.ToString("h:mm tt")+". Zoom "+ZoomLevel+" times.";
         Invalidate();
     }
 

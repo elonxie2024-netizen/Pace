@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.27"
+  #define MyAppVersion "0.2.28"
 #endif
 
 #define MyAppName "Pace"
