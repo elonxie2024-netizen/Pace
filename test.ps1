@@ -2,6 +2,7 @@ $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Windows.Forms
 [void][Reflection.Assembly]::LoadFrom("$PSScriptRoot\ScreenTime.exe")
 $flags = [Reflection.BindingFlags]'NonPublic,Instance'
+$staticFlags = [Reflection.BindingFlags]'NonPublic,Static'
 $tempFolder = Join-Path $env:TEMP ('ScreenTime-test-' + [guid]::NewGuid())
 $app = $null
 function Field($name) { $app.GetType().GetField($name, $flags).GetValue($app) }
@@ -121,7 +122,9 @@ try {
     Assert (($state.TrackingEvents | Where-Object { $_.Kind -eq 'Gap' -and $_.Detail -like '*was closed*' }).Count -eq 1) 'A deliberate exit must be distinguished from an unexpected tracking gap'
     $state.TrackingSessionOpen = $true; Call 'Heartbeat'
     Call 'RefreshTrackingHealth'; Call 'RefreshHistory'
-    Assert ((Field 'trackingHealthDetail').Text -like 'Today:*used*break*offscreen activity*') 'Today must show separate used, break, and offscreen-activity totals'
+    Assert ((Field 'trackingUsedStat').Text -like 'USED*' -and (Field 'trackingBreakStat').Text -like 'BREAK*' -and (Field 'trackingOffscreenStat').Text -like 'OFFSCREEN*') 'Today must show separate used, break, and offscreen-activity totals at the bottom of Tracking Health'
+    $expectedBreakMethod=$app.GetType().GetMethod('ExpectedBreakCount',$staticFlags); $breakPercentMethod=$app.GetType().GetMethod('BreakGoalPercent',$staticFlags)
+    Assert ($expectedBreakMethod.Invoke($null,@([double]9000,[int]25)) -eq 6 -and $breakPercentMethod.Invoke($null,@([double]1350,[double]1800)) -eq 75) 'Two hours and thirty minutes at a 25-minute interval with 22m 30s of 30m expected break time must produce a 75% break goal'
     Assert (@((Field 'trackingEvents').Items | Where-Object { $_ -like '*NOT TRACKED*' }).Count -eq 2) 'Tracking health must list untracked intervals explicitly'
     Assert (@((Field 'history').Items | Where-Object { $_ -like '*not tracked*' }).Count -ge 1) 'Daily history must disclose tracking gaps instead of presenting incomplete data as complete'
     Assert ((Field 'trackingLaunchStatus').Text -like 'Launch at sign-in*') 'Tracking health must report whether launch at sign-in is working'
@@ -174,7 +177,7 @@ try {
     $navDate=[datetime]::Today.AddDays(-1); $navStart=New-Object TrackingEventRecord -Property @{ Kind='Started'; Start=$navDate.AddHours(8).ToString('o'); Detail='Previous day start.' }; $navStop=New-Object TrackingEventRecord -Property @{ Kind='Stopped'; Start=$navDate.AddHours(10).ToString('o'); Detail='Previous day stop.' }; $state.TrackingEvents.Add($navStart); $state.TrackingEvents.Add($navStop)
     $app.GetType().GetMethod('ChangeTrackingHealthDay',$flags).Invoke($app,@(-1))
     Assert ((Field 'trackingHealthDate') -eq $navDate -and (Field 'trackingDayLabel').Text -eq $navDate.ToString('ddd, MMM d') -and (Field 'trackingNextDay').Enabled) 'Tracking-health arrows must navigate to a previous day and enable the return arrow'
-    Assert ((Field 'trackingHealthDetail').Text -like ($navDate.ToString('dddd, MMM d')+'*used*break*offscreen activity*')) 'Every previous day must use the same separate used, break, and offscreen-activity summary'
+    Assert ((Field 'trackingUsedStat').Text -like 'USED*' -and (Field 'trackingExpectedStat').Text -like 'EXPECTED*' -and (Field 'trackingBreakPercentStat').Text -like 'BREAK GOAL*') 'Every previous day must show the same numerical break summary'
     Assert ((Field 'trackingTimeline').RangeStart -eq $navDate.AddHours(8) -and @((Field 'trackingEvents').Items | Where-Object { $_ -like '*Previous day*' }).Count -eq 2) 'Day navigation must show only that day and begin its bar at the first activity'
     $app.GetType().GetMethod('ChangeTrackingHealthDay',$flags).Invoke($app,@(1))
     Assert ((Field 'trackingHealthDate') -eq [datetime]::Today -and -not (Field 'trackingNextDay').Enabled) 'The next-day arrow must return to today and stop there'
@@ -182,6 +185,8 @@ try {
     $zoomedTimeline=Field 'trackingTimeline'; $zoomedLabel=Field 'trackingZoomLabel'; $zoomedOutButton=Field 'trackingZoomOut'
     Assert ($zoomedTimeline.ZoomLevel -eq 2 -and $zoomedTimeline.Width -eq 2*$zoomedTimeline.Parent.ClientSize.Width -and $zoomedTimeline.Height -eq 2*$zoomedTimeline.Parent.ClientSize.Height -and $zoomedTimeline.Top -lt 0 -and $zoomedLabel.Text -eq '2x' -and $zoomedOutButton.Enabled) 'The visible zoom controls must magnify the timeline proportionally inside its viewport'
     (Field 'trackingTimeline').ZoomOut()
+    $statsPanel=(Field 'trackingUsedStat').Parent
+    Assert ((Field 'trackingEvents').Bottom -lt $statsPanel.Top -and $statsPanel.Bottom -le (Field 'tabs').Height-45) 'Bottom tracking statistics must fit below recent events without overlap'
     $healthTopControls=@((Field 'trackingPreviousDay'),(Field 'trackingDayLabel'),(Field 'trackingNextDay'),(Field 'trackingZoomOut'),(Field 'trackingZoomLabel'),(Field 'trackingZoomIn'))
     for($a=0;$a -lt $healthTopControls.Count;$a++){for($b=$a+1;$b -lt $healthTopControls.Count;$b++){Assert (-not $healthTopControls[$a].Bounds.IntersectsWith($healthTopControls[$b].Bounds)) 'Tracking day and zoom controls must not overlap'}}
     [void]$state.TrackingEvents.Remove($navStart); [void]$state.TrackingEvents.Remove($navStop)

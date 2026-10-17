@@ -18,6 +18,7 @@ Pace is a small Windows desktop app for keeping a personal, trust-based screen-t
 - Lets Tracking Health move between days and proportionally enlarge or drag each day's timeline in both dimensions, beginning at that day's first recorded computer activity
 - Crops completed timelines at their final detected use instead of extending inactive time to midnight
 - Summarizes every day with separate totals for used time, break time, and offscreen activity
+- Compares actual break time with the breaks due from that day's usage, including the expected total and completion percentage
 - Separates regular breaks, offscreen activity, manual pauses, Windows lock or sleep, and tracking gaps in Tracking Health
 - Shows each timeline period's type and length on hover, with separate markers for canceled scheduled breaks and active breaks ended early
 - Makes every user-facing timer configurable in hours and minutes from one Settings tab
