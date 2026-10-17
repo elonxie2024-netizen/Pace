@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.31.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.31.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.32.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.32.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -177,7 +177,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.31";
+    const string PaceVersion="0.2.32";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -352,11 +352,11 @@ public class ScreenTime : Form {
         trackingTimeline.ViewChanged+=delegate { UpdateTrackingZoomControls(); };
         trackingEvents=new ListBox { Location=new Point(18,231),Size=new Size(790,21),BorderStyle=BorderStyle.None,HorizontalScrollbar=true,BackColor=Color.FromArgb(252,251,247) }; health.Controls.Add(trackingEvents);
         Panel trackingStats=new Panel { Location=new Point(18,258),Size=new Size(790,39),BackColor=PaceTheme.Alternate }; health.Controls.Add(trackingStats); Round(trackingStats,10);
-        trackingUsedStat=AddLabel(trackingStats,"USED",0,1,150,37,8); trackingUsedStat.TextAlign=ContentAlignment.MiddleCenter;
-        trackingBreakStat=AddLabel(trackingStats,"BREAK",156,1,150,37,8); trackingBreakStat.TextAlign=ContentAlignment.MiddleCenter;
-        trackingOffscreenStat=AddLabel(trackingStats,"OFFSCREEN",312,1,150,37,8); trackingOffscreenStat.TextAlign=ContentAlignment.MiddleCenter;
-        trackingExpectedStat=AddLabel(trackingStats,"EXPECTED",468,1,160,37,8); trackingExpectedStat.TextAlign=ContentAlignment.MiddleCenter;
-        trackingBreakPercentStat=AddLabel(trackingStats,"BREAK GOAL",634,1,156,37,8); trackingBreakPercentStat.TextAlign=ContentAlignment.MiddleCenter;
+        trackingUsedStat=AddLabel(trackingStats,"USED",0,1,150,37,8); trackingUsedStat.TextAlign=ContentAlignment.MiddleCenter; Round(trackingUsedStat,8);
+        trackingBreakStat=AddLabel(trackingStats,"BREAK",156,1,150,37,8); trackingBreakStat.TextAlign=ContentAlignment.MiddleCenter; Round(trackingBreakStat,8);
+        trackingOffscreenStat=AddLabel(trackingStats,"OFFSCREEN",312,1,150,37,8); trackingOffscreenStat.TextAlign=ContentAlignment.MiddleCenter; Round(trackingOffscreenStat,8);
+        trackingExpectedStat=AddLabel(trackingStats,"EXPECTED",468,1,160,37,8); trackingExpectedStat.TextAlign=ContentAlignment.MiddleCenter; Round(trackingExpectedStat,8);
+        trackingBreakPercentStat=AddLabel(trackingStats,"BREAK GOAL",634,1,156,37,8); trackingBreakPercentStat.TextAlign=ContentAlignment.MiddleCenter; Round(trackingBreakPercentStat,8);
         cornerBar=new CornerBar(); cornerBar.Icon=Icon; if(state.CornerPositioned)cornerBar.RestoreSavedPosition(state.CornerX,state.CornerY); cornerBar.OpenDashboard+=delegate { if(Visible) { Hide(); } else { Show(); WindowState=FormWindowState.Normal; Activate(); } cornerBar.SetDashboardOpen(Visible); }; cornerBar.AddTimeClicked+=delegate { AddTime(); }; cornerBar.TakeBreakClicked+=delegate { StartBreak(); }; cornerBar.EndDayClicked+=delegate { StartManualShutdown(); }; cornerBar.PauseClicked+=delegate { TogglePause(); }; cornerBar.DoNotDisturbClicked+=delegate { ToggleDoNotDisturb(); }; cornerBar.UserPositionChanged+=delegate { state.CornerPositioned=true; state.CornerX=cornerBar.Left; state.CornerY=cornerBar.Top; Save(); }; cornerBar.PositionReset+=delegate { state.CornerPositioned=false; Save(); };
         appPauseOverlay=new PauseOverlay(); appPauseOverlay.ResumeRequested+=delegate { ResumeAll(); }; Controls.Add(appPauseOverlay);
         VisibleChanged+=delegate { if(paused && Visible)appPauseOverlay.Cover(this); };
@@ -437,7 +437,8 @@ public class ScreenTime : Form {
         BackColor=cream; ForeColor=ink; tabs.BackColor=cream; todayCard.BackColor=sage;
         brandLabel.ForeColor=green; heroLabel.ForeColor=ink; subtitleLabel.ForeColor=PaceTheme.Muted; detail.ForeColor=PaceTheme.Muted; status.ForeColor=PaceTheme.Muted; weekHint.ForeColor=PaceTheme.Muted; advancedHint.ForeColor=PaceTheme.Muted; activitySummary.ForeColor=PaceTheme.Muted; timingHelp.ForeColor=PaceTheme.Muted; settingsStatus.ForeColor=PaceTheme.Muted; soundStatus.ForeColor=PaceTheme.Muted; trackingHealthDetail.ForeColor=PaceTheme.Muted;
         trackingIndicator.ForeColor=saveFailed?PaceTheme.Warning:green; trackingHealthTitle.ForeColor=saveFailed?PaceTheme.Warning:green;
-        trackingUsedStat.ForeColor=TrackingHealthTimeline.TrackedColor; trackingBreakStat.ForeColor=TrackingHealthTimeline.BreakColor; trackingOffscreenStat.ForeColor=TrackingHealthTimeline.OffscreenColor; trackingExpectedStat.ForeColor=TrackingHealthTimeline.BreakColor; trackingBreakPercentStat.ForeColor=TrackingHealthTimeline.BreakColor;
+        trackingUsedStat.BackColor=TrackingHealthTimeline.TrackedColor; trackingBreakStat.BackColor=TrackingHealthTimeline.BreakColor; trackingOffscreenStat.BackColor=TrackingHealthTimeline.OffscreenColor; trackingExpectedStat.BackColor=TrackingHealthTimeline.BreakColor; trackingBreakPercentStat.BackColor=TrackingHealthTimeline.BreakColor;
+        trackingUsedStat.ForeColor=trackingBreakStat.ForeColor=trackingOffscreenStat.ForeColor=trackingExpectedStat.ForeColor=trackingBreakPercentStat.ForeColor=Color.White;
         darkMode.Text=state.DarkMode?"Dark: On":"Dark: Off"; darkMode.BackColor=state.DarkMode?green:PaceTheme.Input; darkMode.ForeColor=state.DarkMode?Color.White:ink;
         UpdateAutoCopyButton();
         activityChart.SetDarkMode(state.DarkMode); trackingTimeline.SetDarkMode(state.DarkMode); blockPreview.SetDarkMode(state.DarkMode); cornerBar.SetDarkMode(state.DarkMode);
