@@ -10,7 +10,8 @@ function Call($name) { $app.GetType().GetMethod($name, $flags).Invoke($app, @())
 function Elapsed([double]$seconds, [bool]$locked) { $app.GetType().GetMethod('ApplyElapsed', $flags).Invoke($app, @($seconds, $locked)) }
 function Assert($condition, $message) { if (-not $condition) { throw $message } }
 function Descendants($root) { foreach ($control in $root.Controls) { $control; if ($control.HasChildren) { Descendants $control } } }
-Assert ((Get-Content "$PSScriptRoot\installer\Pace.iss" -Raw) -match 'autodesktop.*MyAppName' -and (Get-Content "$PSScriptRoot\ScreenTime.cs" -Raw) -match 'PaceShowCorner') 'The current installer must create a stable Pace shortcut and repeat launches must signal the corner bar'
+$installerSource=Get-Content "$PSScriptRoot\installer\Pace.iss" -Raw
+Assert ($installerSource -match 'autodesktop.*MyAppName' -and $installerSource -match 'Parameters: "/corner"' -and $installerSource -notmatch 'skipifsilent' -and (Get-Content "$PSScriptRoot\ScreenTime.cs" -Raw) -match 'PaceShowCorner') 'Updates must launch the corner bar, the installer must create a stable Pace shortcut, and repeat launches must signal the running bar'
 try {
     $app = New-Object ScreenTime -ArgumentList $tempFolder
     (Field 'timer').Stop()
