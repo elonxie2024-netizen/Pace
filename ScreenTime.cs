@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.32.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.32.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.33.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.33.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -177,7 +177,8 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.32";
+    const string PaceVersion="0.2.33";
+    static EventWaitHandle showCornerSignal;
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -681,6 +682,7 @@ public class ScreenTime : Form {
         pausedToastWasVisible=false; pausedFocusToastWasVisible=false; RefreshView(); RefreshTrackingHealth(); PositionReminder(); Save();
     }
     void Tick() {
+        if(showCornerSignal!=null && showCornerSignal.WaitOne(0)) { Hide(); cornerBar.RestoreBar(); cornerBar.SetDashboardOpen(false); }
         double now=watch.Elapsed.TotalSeconds, elapsed=now-last; last=now;
         if(paused) { if(++ticks%15==0) { Heartbeat(); Save(); } return; }
         // A suspended system must not accrue the elapsed sleep interval.
@@ -1135,5 +1137,12 @@ public class ScreenTime : Form {
         if(paused && (message.Msg==0x00A1 || message.Msg==0x00A4 || message.Msg==0x00A7))ResumeAll();
         base.WndProc(ref message);
     }
-    [STAThread] public static void Main(string[] args) { bool created; using(var mutex=new Mutex(true,"Local\\TrustScreenTime",out created)) { if(!created) { MessageBox.Show("Pace is already running. Open it from the system tray."); return; } Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ScreenTime()); } }
+    [STAThread] public static void Main(string[] args) {
+        bool created;
+        using(var mutex=new Mutex(true,"Local\\TrustScreenTime",out created))
+        using(var signal=new EventWaitHandle(false,EventResetMode.AutoReset,"Local\\PaceShowCorner")) {
+            if(!created) { signal.Set(); return; }
+            showCornerSignal=signal; Application.EnableVisualStyles(); Application.SetCompatibleTextRenderingDefault(false); Application.Run(new ScreenTime()); showCornerSignal=null;
+        }
+    }
 }

@@ -1,5 +1,5 @@
 #ifndef MyAppVersion
-  #define MyAppVersion "0.2.32"
+  #define MyAppVersion "0.2.33"
 #endif
 
 #define MyAppName "Pace"
@@ -35,7 +35,6 @@ VersionInfoDescription=Pace installer
 VersionInfoProductName={#MyAppName}
 
 [Tasks]
-Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: unchecked
 Name: "startup"; Description: "Start Pace when I sign in"; GroupDescription: "Automatic tracking:"; Flags: checkedonce
 
 [Files]
@@ -44,10 +43,10 @@ Source: "..\assets\pace-garden-fitted.png"; DestDir: "{app}\assets"; Flags: igno
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
-Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "Pace"; ValueData: """{app}\{#MyAppExeName}"""; Flags: uninsdeletevalue; Tasks: startup
 
 [Run]
-Filename: "{app}\{#MyAppExeName}"; Description: "Launch Pace"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\{#MyAppExeName}"; Parameters: "/corner"; Description: "Launch Pace corner bar"; Flags: nowait postinstall skipifsilent

@@ -31,7 +31,7 @@ Pace is a small Windows desktop app for keeping a personal, trust-based screen-t
 
 Download `Pace-Setup-<version>.exe` from the latest GitHub release and open it. The installer works for the current Windows account and does not require administrator access. It creates a Start Menu shortcut and offers optional desktop and launch-at-sign-in choices.
 
-After installation, right-click the Pace notification-area icon to open Pace, restore the corner bar, change whether Pace starts when you sign in, check for updates, or exit.
+After installation, open the permanent **Pace** desktop or Start Menu shortcut. Launching it restores the corner bar, including when Pace is already running. You can also right-click the Pace notification-area icon to open Pace, restore the corner bar, change whether Pace starts when you sign in, check for updates, or exit.
 
 ## Running from source
 
