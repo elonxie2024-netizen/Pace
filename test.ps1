@@ -123,6 +123,7 @@ try {
     $state.TrackingSessionOpen = $true; Call 'Heartbeat'
     Call 'RefreshTrackingHealth'; Call 'RefreshHistory'
     Assert ((Field 'trackingUsedStat').Text -like 'USED*' -and (Field 'trackingBreakStat').Text -like 'BREAK*' -and (Field 'trackingOffscreenStat').Text -like 'OFFSCREEN*') 'Today must show separate used, break, and offscreen-activity totals at the bottom of Tracking Health'
+    Assert ((Field 'trackingExpectedStat').Text -notmatch '[×=]') 'Expected break time must be shown without exposing the calculation'
     $expectedBreakMethod=$app.GetType().GetMethod('ExpectedBreakCount',$staticFlags); $breakPercentMethod=$app.GetType().GetMethod('BreakGoalPercent',$staticFlags)
     Assert ($expectedBreakMethod.Invoke($null,@([double]9000,[int]25)) -eq 6 -and $breakPercentMethod.Invoke($null,@([double]1350,[double]1800)) -eq 75) 'Two hours and thirty minutes at a 25-minute interval with 22m 30s of 30m expected break time must produce a 75% break goal'
     Assert (@((Field 'trackingEvents').Items | Where-Object { $_ -like '*NOT TRACKED*' }).Count -eq 2) 'Tracking health must list untracked intervals explicitly'
