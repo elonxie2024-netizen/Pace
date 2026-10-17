@@ -18,8 +18,8 @@ using System.Text.RegularExpressions;
 [assembly: System.Reflection.AssemblyProduct("Pace")]
 [assembly: System.Reflection.AssemblyDescription("A calm, trust-based screen-time planner")]
 [assembly: System.Reflection.AssemblyCompany("Pace")]
-[assembly: System.Reflection.AssemblyVersion("0.2.30.0")]
-[assembly: System.Reflection.AssemblyFileVersion("0.2.30.0")]
+[assembly: System.Reflection.AssemblyVersion("0.2.31.0")]
+[assembly: System.Reflection.AssemblyFileVersion("0.2.31.0")]
 
 public class WeeklyPlan {
     public string WeekStart = "";
@@ -177,7 +177,7 @@ public class Settings {
     }
 }
 public class ScreenTime : Form {
-    const string PaceVersion="0.2.30";
+    const string PaceVersion="0.2.31";
     const string ReleasesUrl="https://github.com/elonxie2024-netizen/Pace/releases/latest";
     const string ReleasesApi="https://api.github.com/repos/elonxie2024-netizen/Pace/releases/latest";
     Settings state;
@@ -437,6 +437,7 @@ public class ScreenTime : Form {
         BackColor=cream; ForeColor=ink; tabs.BackColor=cream; todayCard.BackColor=sage;
         brandLabel.ForeColor=green; heroLabel.ForeColor=ink; subtitleLabel.ForeColor=PaceTheme.Muted; detail.ForeColor=PaceTheme.Muted; status.ForeColor=PaceTheme.Muted; weekHint.ForeColor=PaceTheme.Muted; advancedHint.ForeColor=PaceTheme.Muted; activitySummary.ForeColor=PaceTheme.Muted; timingHelp.ForeColor=PaceTheme.Muted; settingsStatus.ForeColor=PaceTheme.Muted; soundStatus.ForeColor=PaceTheme.Muted; trackingHealthDetail.ForeColor=PaceTheme.Muted;
         trackingIndicator.ForeColor=saveFailed?PaceTheme.Warning:green; trackingHealthTitle.ForeColor=saveFailed?PaceTheme.Warning:green;
+        trackingUsedStat.ForeColor=TrackingHealthTimeline.TrackedColor; trackingBreakStat.ForeColor=TrackingHealthTimeline.BreakColor; trackingOffscreenStat.ForeColor=TrackingHealthTimeline.OffscreenColor; trackingExpectedStat.ForeColor=TrackingHealthTimeline.BreakColor; trackingBreakPercentStat.ForeColor=TrackingHealthTimeline.BreakColor;
         darkMode.Text=state.DarkMode?"Dark: On":"Dark: Off"; darkMode.BackColor=state.DarkMode?green:PaceTheme.Input; darkMode.ForeColor=state.DarkMode?Color.White:ink;
         UpdateAutoCopyButton();
         activityChart.SetDarkMode(state.DarkMode); trackingTimeline.SetDarkMode(state.DarkMode); blockPreview.SetDarkMode(state.DarkMode); cornerBar.SetDarkMode(state.DarkMode);

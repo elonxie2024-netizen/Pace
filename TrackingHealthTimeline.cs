@@ -19,11 +19,14 @@ public sealed class TrackingHealthTimeline : Control {
     readonly ToolTip hoverTip=new ToolTip { InitialDelay=200,ReshowDelay=100,AutoPopDelay=6000,ShowAlways=true };
     Slice hoveredSlice;
     Marker hoveredMarker;
-    readonly Color tracked=Color.FromArgb(81,145,118);
+    public static Color TrackedColor { get { return Color.FromArgb(81,145,118); } }
+    public static Color BreakColor { get { return Color.FromArgb(108,155,180); } }
+    public static Color OffscreenColor { get { return Color.FromArgb(139,119,174); } }
+    readonly Color tracked=TrackedColor;
     readonly Color locked=Color.FromArgb(213,170,92);
     readonly Color manualPaused=Color.FromArgb(104,139,178);
-    readonly Color breakColor=Color.FromArgb(108,155,180);
-    readonly Color offscreen=Color.FromArgb(139,119,174);
+    readonly Color breakColor=BreakColor;
+    readonly Color offscreen=OffscreenColor;
     readonly Color gap=Color.FromArgb(194,105,91);
     readonly Color breakCanceled=Color.FromArgb(190,126,71);
     readonly Color breakEndedEarly=Color.FromArgb(174,85,101);
